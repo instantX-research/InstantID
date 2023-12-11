@@ -1,7 +1,7 @@
 # InstantID
 <a href='https://instantid.github.io/'><img src='https://img.shields.io/badge/Project-Page-green'></a> 
 <a href='https://instantid.github.io/'><img src='https://img.shields.io/badge/Technique-Report-red'></a> 
-[![GitHub](https://img.shields.io/github/gist/stars/InstantID%2FInstantID)](https://github.com/InstantID/InstantID)
+[![GitHub](https://ghbtns.com/github-btn.html?user=InstantID&repo=InstantID&type=star&count=true&size=large)](https://github.com/InstantID/InstantID)
 
 **InstantID : Zero-shot Identity-Preserving Generation in Seconds**
 
