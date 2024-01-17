@@ -13,8 +13,8 @@ There has been significant progress in personalized image synthesis with methods
 <img src='assets/famous.png'>
 
 ## Release
-· [2024/1/15] 🔥 We release the technical report.
-· [2024/12/11] 🔥 We launch the project page.
+- [2024/1/15] 🔥 We release the technical report.
+- [2024/12/11] 🔥 We launch the project page.
 
 ## Demos
 
