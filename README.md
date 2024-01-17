@@ -4,7 +4,7 @@
 
 **InstantID : Zero-shot Identity-Preserving Generation in Seconds**
 
-We are currently organizing codes and pre-trained checkpoints, will be available soon! Don't hesitate to star out work.
+We are currently organizing code and pre-training checkpoints, which will be available soon! Please don't hesitate to star our work.
 
 ## Abstract
 
@@ -27,19 +27,19 @@ There has been significant progress in personalized image synthesis with methods
 ### Comparison with Previous Works
 
 <p align="center">
-  <img src="assets/compare-a.jpg">
+  <img src="assets/compare-a.png">
 </p>
 
 Comparison with existing tuning-free state-of-the-art techniques. Specifically, we compare with IP-Adapter (IPA), IP-Adapter-FaceID, and recent PhotoMaker. Among them, PhotoMaker needs to train the LoRA parameters of UNet. It can be seen that both PhotoMaker and IP-Adapter-FaceID achieves good fidelity, but there is obvious degradation of text control capabilities. In contrast, InstantID achieves better fidelity and retain good text editability (faces and styles blend better).
 
 <p align="center">
-  <img src="assets/compare-c.jpg">
+  <img src="assets/compare-c.png">
 </p>
 
 Comparison of InstantID with pre-trained character LoRAs. We can achieve competitive results as LoRAs without any training.
 
 <p align="center">
-  <img src="assets/compare-b.jpg">
+  <img src="assets/compare-b.png">
 </p>
 
 Comparison of InstantID with InsightFace Swapper (also known as ROOP or Refactor). However, in non-realistic style, our work is more flexible on the integration of face and background.
