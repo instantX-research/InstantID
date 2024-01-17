@@ -14,7 +14,7 @@ There has been significant progress in personalized image synthesis with methods
 
 ## Release
 - [2024/1/15] 🔥 We release the technical report.
-- [2024/12/11] 🔥 We launch the project page.
+- [2023/12/11] 🔥 We launch the project page.
 
 ## Demos
 
@@ -46,7 +46,7 @@ Comparison of InstantID with InsightFace Swapper (also known as ROOP or Refactor
 
 ## Code
 
-We are working on cleaning up our code to support diffusers and we will release the code before the end of January. Starring our work will definitely speed up the process. No kidding!
+We are working with diffusers team and will release the code before the end of January. Starring our work will definitely speed up the process. No kidding!
 
 ## Cite
 If you find InstantID useful for your research and applications, please cite us using this BibTeX:
