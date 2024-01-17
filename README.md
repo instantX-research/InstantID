@@ -1,41 +1,62 @@
 # InstantID
 <a href='https://instantid.github.io/'><img src='https://img.shields.io/badge/Project-Page-green'></a> 
-<a href='https://instantid.github.io/'><img src='https://img.shields.io/badge/Technique-Report-red'></a> 
+<a href='https://arxiv.org/abs/2401.07519'><img src='https://img.shields.io/badge/Technique-Report-red'></a> 
 
 **InstantID : Zero-shot Identity-Preserving Generation in Seconds**
 
-We are currently organizing codes, pre-trained checkpoints as well as technical report, will be available soon!
+We are currently organizing codes and pre-trained checkpoints, will be available soon! Don't hesitate to star out work.
 
 ## Abstract
 
-Existing personalization generation methods, such as Textual Inversion, DreamBooth, and LoRA, have made significant progress in custom image creation. However, these works require expensive computational resources and time for fine-tuning, and require multiple reference images, which limits their applications in the real world. InstantID addresses these limitations by leveraging a plug-and-play module, enabling it to adeptly handle image personalization in any style using only one face image while maintaining high fidelity. To preserve the face identity, we introduce a novel face encoder to retain the intricate details of the reference image. InstantID is instant and insane, its performance and efficiency in diverse scenarios show its potentiality in various real-world applications. Our work is compatible with common pretrained text-to-image diffusion models such as SD1.5 and SDXL as a plugin. Code and pre-trained checkpoints will be made public soon!
+There has been significant progress in personalized image synthesis with methods such as Textual Inversion, DreamBooth, and LoRA. Yet, their real-world applicability is hindered by high storage demands, lengthy fine-tuning processes, and the need for multiple reference images. Conversely, existing ID embedding-based methods, while requiring only a single forward inference, face challenges: they either necessitate extensive fine-tuning across numerous model parameters, lack compatibility with community pre-trained models, or fail to maintain high face fidelity. Addressing these limitations, we introduce InstantID, a powerful diffusion model-based solution. Our plug-and-play module adeptly handles image personalization in various styles using just a single facial image, while ensuring high fidelity.  To achieve this, we design a novel IdentityNet by imposing strong semantic and weak spatial conditions, integrating facial and landmark images with textual prompts to steer the image generation. InstantID demonstrates exceptional performance and efficiency, proving highly beneficial in real-world applications where identity preservation is paramount. Moreover, our work seamlessly integrates with popular pre-trained text-to-image diffusion models like SD1.5 and SDXL, serving as an adaptable plugin. Our codes and pre-trained checkpoints will be available at https://github.com/InstantID/InstantID.
 
-<img src='assets/teaser.png'>
+<img src='assets/famous.png'>
+
+## Release
+· [2024/1/15] 🔥 We release the technical report.
+· [2024/12/11] 🔥 We launch the project page.
 
 ## Demos
 
 ### Stylized Synthesis
 
 <p align="center">
-  <img src="assets/fig1.png">
+  <img src="assets/author.png">
 </p>
 
-### Identity Interpolation
+### Comparison with Previous Works
 
 <p align="center">
-  <img src="assets/fig2.png">
+  <img src="assets/compare-a.jpg">
 </p>
 
-### Multi-ID Synthesis in Multi-Style
+Comparison with existing tuning-free state-of-the-art techniques. Specifically, we compare with IP-Adapter (IPA), IP-Adapter-FaceID, and recent PhotoMaker. Among them, PhotoMaker needs to train the LoRA parameters of UNet. It can be seen that both PhotoMaker and IP-Adapter-FaceID achieves good fidelity, but there is obvious degradation of text control capabilities. In contrast, InstantID achieves better fidelity and retain good text editability (faces and styles blend better).
 
 <p align="center">
-  <img src="assets/fig3.png">
+  <img src="assets/compare-c.jpg">
 </p>
+
+Comparison of InstantID with pre-trained character LoRAs. We can achieve competitive results as LoRAs without any training.
+
+<p align="center">
+  <img src="assets/compare-b.jpg">
+</p>
+
+Comparison of InstantID with InsightFace Swapper (also known as ROOP or Refactor). However, in non-realistic style, our work is more flexible on the integration of face and background.
 
 ## Code
 
-Coming soon.
+We are working on cleaning up our code to support diffusers and we will release the code before the end of January. Starring our work will definitely speed up the process. No kidding!
 
 ## Cite
+If you find InstantID useful for your research and applications, please cite us using this BibTeX:
 
-To be updated.
+```bibtex
+@misc{wang2024instantid,
+        title={InstantID: Zero-shot Identity-Preserving Generation in Seconds}, 
+        author={Qixun Wang and Xu Bai and Haofan Wang and Zekui Qin and Anthony Chen},
+        year={2024},
+        eprint={2401.07519},
+        archivePrefix={arXiv},
+        primaryClass={cs.CV}
+}
