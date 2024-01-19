@@ -54,11 +54,9 @@ We are working with diffusers team and will release the code before the end of J
 If you find InstantID useful for your research and applications, please cite us using this BibTeX:
 
 ```bibtex
-@misc{wang2024instantid,
-        title={InstantID: Zero-shot Identity-Preserving Generation in Seconds}, 
-        author={Qixun Wang and Xu Bai and Haofan Wang and Zekui Qin and Anthony Chen},
-        year={2024},
-        eprint={2401.07519},
-        archivePrefix={arXiv},
-        primaryClass={cs.CV}
+@article{wang2024instantid,
+  title={InstantID: Zero-shot Identity-Preserving Generation in Seconds},
+  author={Wang, Qixun and Bai, Xu and Wang, Haofan and Qin, Zekui and Chen, Anthony},
+  journal={arXiv preprint arXiv:2401.07519},
+  year={2024}
 }
