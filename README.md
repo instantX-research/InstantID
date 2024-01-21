@@ -50,6 +50,9 @@ Comparison of InstantID with InsightFace Swapper (also known as ROOP or Refactor
 
 We are working with diffusers team and will release the code before the end of January. Starring our work will definitely speed up the process. No kidding!
 
+## Disclaimer
+This project is released under [Apache License](https://github.com/InstantID/InstantID?tab=Apache-2.0-1-ov-file#readme) and aims to positively impact the field of AI-driven image generation. Users are granted the freedom to create images using this tool, but they are obligated to comply with local laws and utilize it responsibly. The developers will not assume any responsibility for potential misuse by users.
+
 ## Cite
 If you find InstantID useful for your research and applications, please cite us using this BibTeX:
 
