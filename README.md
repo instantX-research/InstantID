@@ -43,7 +43,7 @@ Comparison with pre-trained character LoRAs. We don't need multiple images and s
 
 Comparison with InsightFace Swapper (also known as ROOP or Refactor). However, in non-realistic style, our work is more flexible on the integration of face and background.
 
-## Usage
+## Download
 
 You can directly download the model from [Huggingface](https://huggingface.co/InstantX/InstantID).
 You also can download the model in python script:
@@ -61,7 +61,18 @@ export HF_ENDPOINT=https://hf-mirror.com
 huggingface-cli download --resume-download InstantX/InstantID --local-dir checkpoints
 ```
 
-For face encoder, you need to manutally download via this [URL](https://github.com/deepinsight/insightface/issues/1896#issuecomment-1023867304) to `models/antelopev2` as the default link is invalid.
+For face encoder, you need to manutally download via this [URL](https://github.com/deepinsight/insightface/issues/1896#issuecomment-1023867304) to `models/antelopev2` as the default link is invalid. Once you have prepared all models, the folder tree should be like:
+
+```
+  .
+  ├── models
+  ├── checkpoints
+  ├── ip_adapter
+  ├── pipeline_stable_diffusion_xl_instantid.py
+  └── README.md
+```
+
+## Usage
 
 ```python
 # !pip install opencv-python transformers accelerate insightface
