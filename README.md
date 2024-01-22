@@ -11,7 +11,7 @@ InstantID is a new state-of-the-art tuning-free method to achieve ID-Preserving 
 <img src='assets/applications.png'>
 
 ## Release
-- [2024/1/22] 🔥 We release the pre-trained checkpoints, inference code and gradio demo!
+- [2024/1/22] 🔥 We release the [pre-trained checkpoints](https://huggingface.co/InstantX/InstantID), [inference code](https://github.com/InstantID/InstantID/blob/main/infer.py) and [gradio demo](https://huggingface.co/spaces/InstantX/InstantID)!
 - [2024/1/15] 🔥 We release the technical report.
 - [2023/12/11] 🔥 We launch the project page.
 
@@ -132,10 +132,10 @@ image = pipe(
 ```
 
 ## Usage Tips
-1. If you're unsatisfied with the similarity, increase the weight of controlnet_conditioning_scale (IdentityNet) and ip_adapter_scale (Adapter).
-2. If the generated image is over-saturated, decrease the ip_adapter_scale. If not work, decrease controlnet_conditioning_scale.
-3. If text control is not as expected, decrease ip_adapter_scale.
-4. Good base model always makes a difference.
+- For higher similarity, increase the weight of controlnet_conditioning_scale (IdentityNet) and ip_adapter_scale (Adapter).
+- For over-saturation, decrease the ip_adapter_scale. If not work, decrease controlnet_conditioning_scale.
+- For higher text control ability, decrease ip_adapter_scale.
+- For specific styles, choose corresponding base model makes differences.
 
 # Acknowledgements
 - Our work is highly inspired by [IP-Adapter](https://github.com/tencent-ailab/IP-Adapter) and [ControlNet](https://github.com/lllyasviel/ControlNet). Thanks for their great works!
