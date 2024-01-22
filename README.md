@@ -43,6 +43,7 @@ Comparison with pre-trained character LoRAs. We don't need multiple images and s
 
 Comparison with InsightFace Swapper (also known as ROOP or Refactor). However, in non-realistic style, our work is more flexible on the integration of face and background.
 
+
 ## Download
 
 You can directly download the model from [Huggingface](https://huggingface.co/InstantX/InstantID).
@@ -141,6 +142,10 @@ image = pipe(
 - For over-saturation, decrease the ip_adapter_scale. If not work, decrease controlnet_conditioning_scale.
 - For higher text control ability, decrease ip_adapter_scale.
 - For specific styles, choose corresponding base model makes differences.
+
+
+## Comfyui
+https://github.com/ZHO-ZHO-ZHO/ComfyUI-InstantID
 
 ## Acknowledgements
 - Our work is highly inspired by [IP-Adapter](https://github.com/tencent-ailab/IP-Adapter) and [ControlNet](https://github.com/lllyasviel/ControlNet). Thanks for their great works!
