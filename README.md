@@ -99,10 +99,12 @@ controlnet_path = f'./checkpoints/ControlNetModel'
 # load IdentityNet
 controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=torch.float16)
 
+base_model = 'wangqixun/YamerMIX_v8'  # from https://civitai.com/models/84040?modelVersionId=196039
 pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
-...     "stabilityai/stable-diffusion-xl-base-1.0", controlnet=controlnet, torch_dtype=torch.float16
-... )
-pipe.cuda()
+    base_model,
+    controlnet=controlnet,
+    torch_dtype=torch.float16
+).cuda()
 
 # load adapter
 pipe.load_ip_adapter_instantid(face_adapter)
@@ -112,23 +114,26 @@ Then, you can customized your own face images
 
 ```python
 # load an image
-image = load_image("your-example.jpg")
+image = load_image("./examples/yann-lecun_resize.jpg")
 
 # prepare face emb
 face_info = app.get(cv2.cvtColor(np.array(face_image), cv2.COLOR_RGB2BGR))
-face_info = sorted(face_info, key=lambda x:(x['bbox'][2]-x['bbox'][0])*x['bbox'][3]-x['bbox'][1])[-1] # only use the maximum face
+face_info = sorted(face_info, key=lambda x:(x['bbox'][2]-x['bbox'][0])*x['bbox'][3]-x['bbox'][1])[-1]  # only use the maximum face
 face_emb = face_info['embedding']
 face_kps = draw_kps(face_image, face_info['kps'])
 
-pipe.set_ip_adapter_scale(0.8)
-
-prompt = "Watercolor painting a man . Vibrant, beautiful, painterly, detailed, textural, artistic"
-negative_prompt = "anime, photorealistic, 35mm film, deformed, glitch, low contrast, noisy"
+# prompt
+prompt = "film noir style, ink sketch|vector, male man, highly detailed, sharp focus, ultra sharpness, monochrome, high contrast, dramatic shadows, 1940s style, mysterious, cinematic"
+negative_prompt = "ugly, deformed, noisy, blurry, low contrast, realism, photorealistic, vibrant, colorful"
 
 # generate image
+pipe.set_ip_adapter_scale(0.8)
 image = pipe(
-...     prompt, image_embeds=face_emb, image=face_kps, controlnet_conditioning_scale=0.8
-... ).images[0]
+    prompt,
+    image_embeds=face_emb,
+    image=face_kps,
+    controlnet_conditioning_scale=0.8,
+).images[0]
 ```
 
 ## Usage Tips
