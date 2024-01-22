@@ -61,7 +61,7 @@ export HF_ENDPOINT=https://hf-mirror.com
 huggingface-cli download --resume-download InstantX/InstantID --local-dir checkpoints
 ```
 
-For face encoder, you need to manutally download via this [URL](https://github.com/deepinsight/insightface/issues/1896#issuecomment-1023867304) to `models/antelopev2` as the default link is invalid. Once you have prepared all models, the folder tree should be like:
+For face encoder, you need to manually download via this [URL](https://github.com/deepinsight/insightface/issues/1896#issuecomment-1023867304) to `models/antelopev2` as the default link is invalid. Once you have prepared all models, the folder tree should be like:
 
 ```
   .
