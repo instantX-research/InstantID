@@ -137,6 +137,10 @@ image = pipe(
 3. If text control is not as expected, decrease ip_adapter_scale.
 4. Good base model always makes a difference.
 
+# Acknowledgements
+- Our work is highly inspired by [IP-Adapter](https://github.com/tencent-ailab/IP-Adapter) and [ControlNet](https://github.com/lllyasviel/ControlNet). Thanks for their great works!
+- Thanks to the HuggingFace team for their generous GPU support!
+
 ## Disclaimer
 This project is released under [Apache License](https://github.com/InstantID/InstantID?tab=Apache-2.0-1-ov-file#readme) and aims to positively impact the field of AI-driven image generation. Users are granted the freedom to create images using this tool, but they are obligated to comply with local laws and utilize it responsibly. The developers will not assume any responsibility for potential misuse by users.
 
