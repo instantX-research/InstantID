@@ -104,7 +104,8 @@ pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
     base_model,
     controlnet=controlnet,
     torch_dtype=torch.float16
-).cuda()
+)
+pipe.cuda()
 
 # load adapter
 pipe.load_ip_adapter_instantid(face_adapter)
@@ -114,7 +115,7 @@ Then, you can customized your own face images
 
 ```python
 # load an image
-image = load_image("./examples/yann-lecun_resize.jpg")
+face_image = load_image("./examples/yann-lecun_resize.jpg")
 
 # prepare face emb
 face_info = app.get(cv2.cvtColor(np.array(face_image), cv2.COLOR_RGB2BGR))
