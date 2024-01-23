@@ -12,7 +12,7 @@ InstantID is a new state-of-the-art tuning-free method to achieve ID-Preserving 
 <img src='assets/applications.png'>
 
 ## Release
-- [2024/1/23] 🔥 Our pipeline has been merged into [diffusers](https://github.com/huggingface/diffusers/blob/main/examples/community/pipeline_stable_diffusion_xl_instantid.py)!
+- [2024/1/22] 🔥 Our pipeline has been merged into [diffusers](https://github.com/huggingface/diffusers/blob/main/examples/community/pipeline_stable_diffusion_xl_instantid.py)!
 - [2024/1/22] 🔥 We release the [pre-trained checkpoints](https://huggingface.co/InstantX/InstantID), [inference code](https://github.com/InstantID/InstantID/blob/main/infer.py) and [gradio demo](https://huggingface.co/spaces/InstantX/InstantID)!
 - [2024/1/15] 🔥 We release the [technical report](https://arxiv.org/abs/2401.07519).
 - [2023/12/11] 🔥 We launch the [project page](https://instantid.github.io/).
@@ -93,7 +93,7 @@ from pipeline_stable_diffusion_xl_instantid import StableDiffusionXLInstantIDPip
 
 # prepare 'antelopev2' under ./models
 app = FaceAnalysis(name='antelopev2', root='./', providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
-app.prepare(ctx_id=0, det_size=(640, 640))
+app.prepare(ctx_id=0, det_size=(640, 650))
 
 # prepare models under ./checkpoints
 face_adapter = f'./checkpoints/ip-adapter.bin'
