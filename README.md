@@ -152,11 +152,15 @@ python gradio_demo/app.py
 - For specific styles, choose corresponding base model makes differences.
 
 
-## Comfyui
-https://github.com/ZHO-ZHO-ZHO/ComfyUI-InstantID
+## Resources
+
+### ComfyUI
+1. [ZHO-ZHO-ZHO/ComfyUI-InstantID](https://github.com/ZHO-ZHO-ZHO/ComfyUI-InstantID)
+2. [huxiuhan/ComfyUI-InstantID](https://github.com/huxiuhan/ComfyUI-InstantID)
 
 ## Acknowledgements
 - Our work is highly inspired by [IP-Adapter](https://github.com/tencent-ailab/IP-Adapter) and [ControlNet](https://github.com/lllyasviel/ControlNet). Thanks for their great works!
+- Thanks [ZHO-ZHO-ZHO](https://github.com/ZHO-ZHO-ZHO), [huxiuhan](https://github.com/huxiuhan) for supporting ComfyUI.
 - Thanks to the HuggingFace team for their generous GPU support!
 
 ## Disclaimer
