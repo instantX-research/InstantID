@@ -137,6 +137,13 @@ image = pipe(
 ).images[0]
 ```
 
+## Start a local gradio demo
+Run the following command:
+
+```python
+python gradio_demo/app.py
+```
+
 ## Usage Tips
 - For higher similarity, increase the weight of controlnet_conditioning_scale (IdentityNet) and ip_adapter_scale (Adapter).
 - For over-saturation, decrease the ip_adapter_scale. If not work, decrease controlnet_conditioning_scale.
