@@ -153,16 +153,25 @@ python gradio_demo/app.py
 - For specific styles, choose corresponding base model makes differences.
 
 
-## Resources
+## Other Resources
+
+### Gradio
+- [instantid.org](https://instantid.org/)
 
 ### ComfyUI
-1. [ZHO-ZHO-ZHO/ComfyUI-InstantID](https://github.com/ZHO-ZHO-ZHO/ComfyUI-InstantID)
-2. [huxiuhan/ComfyUI-InstantID](https://github.com/huxiuhan/ComfyUI-InstantID)
+- [ZHO-ZHO-ZHO/ComfyUI-InstantID](https://github.com/ZHO-ZHO-ZHO/ComfyUI-InstantID)
+- [huxiuhan/ComfyUI-InstantID](https://github.com/huxiuhan/ComfyUI-InstantID)
+
+### Replicate
+- [zsxkib/instant-id](https://replicate.com/zsxkib/instant-id)
+
+### Windows
+- [sdbds/InstantID-for-windows](https://github.com/sdbds/InstantID-for-windows)
 
 ## Acknowledgements
 - Our work is highly inspired by [IP-Adapter](https://github.com/tencent-ailab/IP-Adapter) and [ControlNet](https://github.com/lllyasviel/ControlNet). Thanks for their great works!
-- Thanks [ZHO-ZHO-ZHO](https://github.com/ZHO-ZHO-ZHO), [huxiuhan](https://github.com/huxiuhan) for supporting ComfyUI.
-- Thanks to the HuggingFace team for their generous GPU support!
+- Thanks [ZHO-ZHO-ZHO](https://github.com/ZHO-ZHO-ZHO), [huxiuhan](https://github.com/huxiuhan), [sdbds](https://github.com/sdbds), [zsxkib](https://replicate.com/zsxkib) for their generous contributions.
+- Thanks to the HuggingFace team for their free GPU support!
 
 ## Disclaimer
 This project is released under [Apache License](https://github.com/InstantID/InstantID?tab=Apache-2.0-1-ov-file#readme) and aims to positively impact the field of AI-driven image generation. Users are granted the freedom to create images using this tool, but they are obligated to comply with local laws and utilize it responsibly. The developers will not assume any responsibility for potential misuse by users.
