@@ -27,6 +27,7 @@ import gradio as gr
 # global variable
 MAX_SEED = np.iinfo(np.int32).max
 device = get_torch_device()
+dtype = torch.float16 if device == "cuda" else torch.float32
 STYLE_NAMES = list(styles.keys())
 DEFAULT_STYLE_NAME = "Watercolor"
 
@@ -39,7 +40,7 @@ face_adapter = f'./checkpoints/ip-adapter.bin'
 controlnet_path = f'./checkpoints/ControlNetModel'
 
 # Load pipeline
-controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=torch.float16)
+controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=dtype)
 
 def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
 
@@ -55,7 +56,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
             (tokenizers, text_encoders, unet, _, vae) = load_models_xl(
                 pretrained_model_name_or_path=pretrained_model_name_or_path,
                 scheduler_name=None,
-                weight_dtype=torch.float16,
+                weight_dtype=dtype,
             )
 
             scheduler = diffusers.EulerDiscreteScheduler.from_config(scheduler_kwargs)
@@ -74,7 +75,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
         pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
             pretrained_model_name_or_path,
             controlnet=controlnet,
-            torch_dtype=torch.float16,
+            torch_dtype=dtype,
             safety_checker=None,
             feature_extractor=None,
         ).to(device)
