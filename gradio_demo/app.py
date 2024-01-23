@@ -81,7 +81,6 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
 
         pipe.scheduler = diffusers.EulerDiscreteScheduler.from_config(pipe.scheduler.config)
 
-    pipe.cuda()
     pipe.load_ip_adapter_instantid(face_adapter)
 
     def randomize_seed_fn(seed: int, randomize_seed: bool) -> int:
