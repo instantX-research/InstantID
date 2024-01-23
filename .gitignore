@@ -161,3 +161,6 @@ cython_debug/
 huggingface/
 checkpoints/
 models/
+
+# Cog
+.cog
