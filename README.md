@@ -12,7 +12,7 @@ InstantID is a new state-of-the-art tuning-free method to achieve ID-Preserving 
 <img src='assets/applications.png'>
 
 ## Release
-- [2024/1/23] 🔥 Our pipeline have been merged into [diffusers](https://github.com/huggingface/diffusers/blob/main/examples/community/pipeline_stable_diffusion_xl_instantid.py)!
+- [2024/1/23] 🔥 Our pipeline has been merged into [diffusers](https://github.com/huggingface/diffusers/blob/main/examples/community/pipeline_stable_diffusion_xl_instantid.py)!
 - [2024/1/22] 🔥 We release the [pre-trained checkpoints](https://huggingface.co/InstantX/InstantID), [inference code](https://github.com/InstantID/InstantID/blob/main/infer.py) and [gradio demo](https://huggingface.co/spaces/InstantX/InstantID)!
 - [2024/1/15] 🔥 We release the [technical report](https://arxiv.org/abs/2401.07519).
 - [2023/12/11] 🔥 We launch the [project page](https://instantid.github.io/).
@@ -152,7 +152,7 @@ python gradio_demo/app.py
 - For over-saturation, decrease the ip_adapter_scale. If not work, decrease controlnet_conditioning_scale.
 - For higher text control ability, decrease ip_adapter_scale.
 - For specific styles, choose corresponding base model makes differences.
-- We don't support multi-person yet, will only use the largest face as reference pose.
+- We have not supported multi-person yet, will only use the largest face as reference pose.
 
 ## Resources
 
