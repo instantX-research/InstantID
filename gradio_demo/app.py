@@ -336,7 +336,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                 
                 # prompt
                 prompt = gr.Textbox(label="Prompt",
-                        info="Give simple prompt is enough to achieve good face fedility",
+                        info="Give simple prompt is enough to achieve good face fidelity",
                         placeholder="A photo of a person",
                         value="")
                 
@@ -346,7 +346,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                 
                 # strength
                 identitynet_strength_ratio = gr.Slider(
-                    label="IdentityNet strength (for fedility)",
+                    label="IdentityNet strength (for fidelity)",
                     minimum=0,
                     maximum=1.5,
                     step=0.05,

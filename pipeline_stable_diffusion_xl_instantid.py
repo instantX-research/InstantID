@@ -42,7 +42,10 @@ from diffusers.utils.import_utils import is_xformers_available
 from ip_adapter.resampler import Resampler
 from ip_adapter.utils import is_torch2_available
 
-from ip_adapter.attention_processor import AttnProcessor, IPAttnProcessor
+if is_torch2_available():
+    from ip_adapter.attention_processor import IPAttnProcessor2_0 as IPAttnProcessor, AttnProcessor2_0 as AttnProcessor
+else:
+    from ip_adapter.attention_processor import IPAttnProcessor, AttnProcessor
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
