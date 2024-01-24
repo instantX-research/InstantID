@@ -278,6 +278,10 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
         clip_skip: Optional[int] = None,
         callback_on_step_end: Optional[Callable[[int, int, Dict], None]] = None,
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
+
+        # IP adapter
+        ip_adapter_scale=None,
+
         **kwargs,
     ):
         r"""
@@ -442,6 +446,10 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
                 mult * [control_guidance_start],
                 mult * [control_guidance_end],
             )
+        
+        # 0. set ip_adapter_scale
+        if ip_adapter_scale is not None:
+            self.set_ip_adapter_scale(ip_adapter_scale)
 
         # 1. Check inputs. Raise error if not correct
         self.check_inputs(
