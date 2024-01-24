@@ -131,12 +131,12 @@ prompt = "film noir style, ink sketch|vector, male man, highly detailed, sharp f
 negative_prompt = "ugly, deformed, noisy, blurry, low contrast, realism, photorealistic, vibrant, colorful"
 
 # generate image
-pipe.set_ip_adapter_scale(0.8)
 image = pipe(
     prompt,
     image_embeds=face_emb,
     image=face_kps,
     controlnet_conditioning_scale=0.8,
+    ip_adapter_scale=0.8,
 ).images[0]
 ```
 

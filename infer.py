@@ -66,13 +66,13 @@ if __name__ == "__main__":
     face_emb = face_info['embedding']
     face_kps = draw_kps(face_image, face_info['kps'])
 
-    pipe.set_ip_adapter_scale(0.8)
     image = pipe(
         prompt=prompt,
         negative_prompt=n_prompt,
         image_embeds=face_emb,
         image=face_kps,
         controlnet_conditioning_scale=0.8,
+        ip_adapter_scale=0.8,
         num_inference_steps=30,
         guidance_scale=5,
     ).images[0]
