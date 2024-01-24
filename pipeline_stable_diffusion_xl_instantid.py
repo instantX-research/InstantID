@@ -214,7 +214,7 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
             if isinstance(attn_processor, IPAttnProcessor):
                 attn_processor.scale = scale
 
-    def _encode_prompt_image_emb(self, prompt_image_emb, device, dtype, do_classifier_free_guidance):
+    def _encode_prompt_image_emb(self, prompt_image_emb, device, num_images_per_prompt, dtype, do_classifier_free_guidance):
         
         if isinstance(prompt_image_emb, torch.Tensor):
             prompt_image_emb = prompt_image_emb.clone().detach()
@@ -230,6 +230,11 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
             prompt_image_emb = torch.cat([prompt_image_emb], dim=0)
         
         prompt_image_emb = self.image_proj_model(prompt_image_emb)
+
+        bs_embed, seq_len, _ = prompt_image_emb.shape
+        prompt_image_emb = prompt_image_emb.repeat(1, num_images_per_prompt, 1)
+        prompt_image_emb = prompt_image_emb.view(bs_embed * num_images_per_prompt, seq_len, -1)
+        
         return prompt_image_emb
 
     @torch.no_grad()
@@ -505,6 +510,7 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
         # 3.2 Encode image prompt
         prompt_image_emb = self._encode_prompt_image_emb(image_embeds, 
                                                          device,
+                                                         num_images_per_prompt,
                                                          self.unet.dtype,
                                                          self.do_classifier_free_guidance)
         
