@@ -1,4 +1,4 @@
-from typing import Literal, Union, Optional
+from typing import Literal, Union, Optional, Tuple, List
 
 import torch
 from transformers import CLIPTextModel, CLIPTokenizer, CLIPTextModelWithProjection
@@ -164,7 +164,7 @@ def load_diffusers_model(
     v2: bool = False,
     clip_skip: Optional[int] = None,
     weight_dtype: torch.dtype = torch.float32,
-) -> tuple[CLIPTokenizer, CLIPTextModel, UNet2DConditionModel,]:
+) -> Tuple[CLIPTokenizer, CLIPTextModel, UNet2DConditionModel,]:
     if v2:
         tokenizer = CLIPTokenizer.from_pretrained(
             TOKENIZER_V2_MODEL_NAME,
@@ -212,7 +212,7 @@ def load_checkpoint_model(
     v2: bool = False,
     clip_skip: Optional[int] = None,
     weight_dtype: torch.dtype = torch.float32,
-) -> tuple[CLIPTokenizer, CLIPTextModel, UNet2DConditionModel,]:
+) -> Tuple[CLIPTokenizer, CLIPTextModel, UNet2DConditionModel,]:
     pipe = StableDiffusionPipeline.from_single_file(
         checkpoint_path,
         upcast_attention=True if v2 else False,
@@ -248,7 +248,7 @@ def load_models(
     v2: bool = False,
     v_pred: bool = False,
     weight_dtype: torch.dtype = torch.float32,
-) -> tuple[CLIPTokenizer, CLIPTextModel, UNet2DConditionModel, SchedulerMixin,]:
+) -> Tuple[CLIPTokenizer, CLIPTextModel, UNet2DConditionModel, SchedulerMixin,]:
     if pretrained_model_name_or_path.endswith(
         ".ckpt"
     ) or pretrained_model_name_or_path.endswith(".safetensors"):
@@ -274,7 +274,7 @@ def load_models(
 def load_diffusers_model_xl(
     pretrained_model_name_or_path: str,
     weight_dtype: torch.dtype = torch.float32,
-) -> tuple[list[CLIPTokenizer], list[SDXL_TEXT_ENCODER_TYPE], UNet2DConditionModel,]:
+) -> Tuple[List[CLIPTokenizer], List[SDXL_TEXT_ENCODER_TYPE], UNet2DConditionModel,]:
     # returns tokenizer, tokenizer_2, text_encoder, text_encoder_2, unet
 
     tokenizers = [
@@ -321,7 +321,7 @@ def load_diffusers_model_xl(
 def load_checkpoint_model_xl(
     checkpoint_path: str,
     weight_dtype: torch.dtype = torch.float32,
-) -> tuple[list[CLIPTokenizer], list[SDXL_TEXT_ENCODER_TYPE], UNet2DConditionModel,]:
+) -> Tuple[List[CLIPTokenizer], List[SDXL_TEXT_ENCODER_TYPE], UNet2DConditionModel,]:
     pipe = StableDiffusionXLPipeline.from_single_file(
         checkpoint_path,
         torch_dtype=weight_dtype,
@@ -345,9 +345,9 @@ def load_models_xl(
     scheduler_name: str,
     weight_dtype: torch.dtype = torch.float32,
     noise_scheduler_kwargs=None,
-) -> tuple[
-    list[CLIPTokenizer],
-    list[SDXL_TEXT_ENCODER_TYPE],
+) -> Tuple[
+    List[CLIPTokenizer],
+    List[SDXL_TEXT_ENCODER_TYPE],
     UNet2DConditionModel,
     SchedulerMixin,
 ]:
