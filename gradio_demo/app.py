@@ -23,13 +23,13 @@ from insightface.app import FaceAnalysis
 
 from style_template import styles
 from pipeline_stable_diffusion_xl_instantid import StableDiffusionXLInstantIDPipeline
-from model_util import load_models_xl, get_torch_device, torch_gc
 
 import gradio as gr
 
+
 # global variable
 MAX_SEED = np.iinfo(np.int32).max
-device = get_torch_device()
+device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 dtype = torch.float16 if str(device).__contains__("cuda") else torch.float32
 STYLE_NAMES = list(styles.keys())
 DEFAULT_STYLE_NAME = "Watercolor"
@@ -47,32 +47,11 @@ controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=dtype)
 
 def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
 
-    if pretrained_model_name_or_path.endswith(
-            ".ckpt"
-        ) or pretrained_model_name_or_path.endswith(".safetensors"):
-            scheduler_kwargs = hf_hub_download(
-                repo_id="wangqixun/YamerMIX_v8",
-                subfolder="scheduler",
-                filename="scheduler_config.json",
-            )
-
-            (tokenizers, text_encoders, unet, _, vae) = load_models_xl(
-                pretrained_model_name_or_path=pretrained_model_name_or_path,
-                scheduler_name=None,
-                weight_dtype=dtype,
-            )
-
-            scheduler = diffusers.EulerDiscreteScheduler.from_config(scheduler_kwargs)
-            pipe = StableDiffusionXLInstantIDPipeline(
-                vae=vae,
-                text_encoder=text_encoders[0],
-                text_encoder_2=text_encoders[1],
-                tokenizer=tokenizers[0],
-                tokenizer_2=tokenizers[1],
-                unet=unet,
-                scheduler=scheduler,
-                controlnet=controlnet,
-            ).to(device)
+    if pretrained_model_name_or_path.endswith(".ckpt") or pretrained_model_name_or_path.endswith(".safetensors"):
+        pipe = StableDiffusionXLInstantIDPipeline.from_single_file(pretrained_model_name_or_path)
+        pipe.safety_checker = None
+        pipe.feature_extractor = None
+        pipe.to(device, dtype=dtype)
 
     else:
         pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
