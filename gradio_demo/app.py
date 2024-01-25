@@ -104,16 +104,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
         if randomize_seed:
             seed = random.randint(0, MAX_SEED)
         return seed
-
-    def swap_to_gallery(images):
-        return gr.update(value=images, visible=True), gr.update(visible=True), gr.update(visible=False)
-
-    def upload_example_to_gallery(images, prompt, style, negative_prompt):
-        return gr.update(value=images, visible=True), gr.update(visible=True), gr.update(visible=False)
-
-    def remove_back_to_files():
-        return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True)
-
+    
     def remove_tips():
         return gr.update(visible=False)
 
@@ -219,9 +210,8 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
     def generate_image(face_image_path, pose_image_path, prompt, negative_prompt, style_name, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed, enable_LCM, progress=gr.Progress(track_tqdm=True)):
         if enable_LCM:
             pipe.load_lora_weights("latent-consistency/lcm-lora-sdxl")
-            pipe.fuse_lora()
             pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
-            guidance_scale = min(guidance_scale, 1.5)
+            guidance_scale = min(guidance_scale, 2.0)
             num_steps = min(num_steps, 10)
         else:
             pipe.disable_lora()
