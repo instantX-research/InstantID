@@ -13,3 +13,5 @@ huggingface-hub==0.20.2
 opencv-python
 insightface
 gradio
+controlnet_aux
+gdown

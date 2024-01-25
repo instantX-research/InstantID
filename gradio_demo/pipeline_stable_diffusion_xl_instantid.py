@@ -1,0 +1,1 @@
+../pipeline_stable_diffusion_xl_instantid.py
