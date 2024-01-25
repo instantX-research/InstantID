@@ -163,4 +163,10 @@ checkpoints/
 models/
 
 # Cog
-.cog
+.cog/
+checkpoints/
+models/
+_download_files.py
+_show_filesizes.py
+*.tar
+.vscode

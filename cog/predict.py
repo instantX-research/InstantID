@@ -18,21 +18,123 @@ from diffusers.models import ControlNetModel
 
 from insightface.app import FaceAnalysis
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from pipeline_stable_diffusion_xl_instantid import (
     StableDiffusionXLInstantIDPipeline,
     draw_kps,
 )
 
+from transformers import AutoTokenizer
+from transformers import CLIPTokenizer
+import logging
+import traceback
+
 # for `ip-adaper`, `ControlNetModel`, and `stable-diffusion-xl-base-1.0`
 CHECKPOINTS_CACHE = "./checkpoints"
-CHECKPOINTS_URL = (
-    "https://weights.replicate.delivery/default/InstantID/checkpoints.tar"
-)
+CHECKPOINTS_URL = "https://weights.replicate.delivery/default/InstantID/checkpoints.tar"
 
 # for `models/antelopev2`
 MODELS_CACHE = "./models"
 MODELS_URL = "https://weights.replicate.delivery/default/InstantID/models.tar"
+
+SDXL_NAME_TO_PATHLIKE = {
+    # `stable-diffusion-xl-base-1.0` is the default model, it's speical since it's always on disk (downloaded in setup)
+    "stable-diffusion-xl-base-1.0": {
+        "slug": "stabilityai/stable-diffusion-xl-base-1.0",
+    },
+    # These are all huggingface models that we host via gcp + pget
+    "afrodite-xl-v2": {
+        "slug": "stablediffusionapi/afrodite-xl-v2",
+        "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--afrodite-xl-v2.tar",
+        "path": "checkpoints/models--stablediffusionapi--afrodite-xl-v2",
+    },
+    "albedobase-xl-20": {
+        "slug": "stablediffusionapi/albedobase-xl-20",
+        "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--albedobase-xl-20.tar",
+        "path": "checkpoints/models--stablediffusionapi--albedobase-xl-20",
+    },
+    "albedobase-xl-v13": {
+        "slug": "stablediffusionapi/albedobase-xl-v13",
+        "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--albedobase-xl-v13.tar",
+        "path": "checkpoints/models--stablediffusionapi--albedobase-xl-v13",
+    },
+    "animagine-xl-30": {
+        "slug": "stablediffusionapi/animagine-xl-30",
+        "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--animagine-xl-30.tar",
+        "path": "checkpoints/models--stablediffusionapi--animagine-xl-30",
+    },
+    "anime-art-diffusion-xl": {
+        "slug": "stablediffusionapi/anime-art-diffusion-xl",
+        "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--anime-art-diffusion-xl.tar",
+        "path": "checkpoints/models--stablediffusionapi--anime-art-diffusion-xl",
+    },
+    "anime-illust-diffusion-xl": {
+        "slug": "stablediffusionapi/anime-illust-diffusion-xl",
+        "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--anime-illust-diffusion-xl.tar",
+        "path": "checkpoints/models--stablediffusionapi--anime-illust-diffusion-xl",
+    },
+    "dreamshaper-xl": {
+        "slug": "stablediffusionapi/dreamshaper-xl",
+        "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--dreamshaper-xl.tar",
+        "path": "checkpoints/models--stablediffusionapi--dreamshaper-xl",
+    },
+    "duchaiten-real3d-nsfw-xl": {
+        "slug": "stablediffusionapi/duchaiten-real3d-nsfw-xl",
+        "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--duchaiten-real3d-nsfw-xl.tar",
+        "path": "checkpoints/models--stablediffusionapi--duchaiten-real3d-nsfw-xl",
+    },
+    "dynavision-xl-v0610": {
+        "slug": "stablediffusionapi/dynavision-xl-v0610",
+        "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--dynavision-xl-v0610.tar",
+        "path": "checkpoints/models--stablediffusionapi--dynavision-xl-v0610",
+    },
+    "guofeng4-xl": {
+        "slug": "stablediffusionapi/guofeng4-xl",
+        "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--guofeng4-xl.tar",
+        "path": "checkpoints/models--stablediffusionapi--guofeng4-xl",
+    },
+    "hentai-mix-xl": {
+        "slug": "stablediffusionapi/hentai-mix-xl",
+        "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--hentai-mix-xl.tar",
+        "path": "checkpoints/models--stablediffusionapi--hentai-mix-xl",
+    },
+    "juggernaut-xl-v8": {
+        "slug": "stablediffusionapi/juggernaut-xl-v8",
+        "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--juggernaut-xl-v8.tar",
+        "path": "checkpoints/models--stablediffusionapi--juggernaut-xl-v8",
+    },
+    "nightvision-xl-0791": {
+        "slug": "stablediffusionapi/nightvision-xl-0791",
+        "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--nightvision-xl-0791.tar",
+        "path": "checkpoints/models--stablediffusionapi--nightvision-xl-0791",
+    },
+    "omnigen-xl": {
+        "slug": "stablediffusionapi/omnigen-xl",
+        "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--omnigen-xl.tar",
+        "path": "checkpoints/models--stablediffusionapi--omnigen-xl",
+    },
+    "pony-diffusion-v6-xl": {
+        "slug": "stablediffusionapi/pony-diffusion-v6-xl",
+        "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--pony-diffusion-v6-xl.tar",
+        "path": "checkpoints/models--stablediffusionapi--pony-diffusion-v6-xl",
+    },
+    "protovision-xl-high-fidel": {
+        "slug": "stablediffusionapi/protovision-xl-high-fidel",
+        "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--protovision-xl-high-fidel.tar",
+        "path": "checkpoints/models--stablediffusionapi--protovision-xl-high-fidel",
+    },
+    "juggernaut-xl-v8": {
+        "slug": "stablediffusionapi/juggernaut-xl-v8",
+        "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--juggernaut-xl-v8.tar",
+        "path": "checkpoints/models--stablediffusionapi--juggernaut-xl-v8",
+    },
+    # These are non-huggingface models, e.g. .safetensors files
+    "RealVisXL_V3.0": {
+        "url": "https://weights.replicate.delivery/default/comfy-ui/checkpoints/RealVisXL_V3.0.safetensors.tar",
+        "path": "checkpoints/RealVisXL_V3.0",
+        "file": "RealVisXL_V3.0.safetensors",
+    },
+}
 
 
 def resize_img(
@@ -93,7 +195,7 @@ class Predictor(BasePredictor):
         self.app.prepare(ctx_id=0, det_size=(self.width, self.height))
 
         # Path to InstantID models
-        face_adapter = f"./checkpoints/ip-adapter.bin"
+        self.face_adapter = f"./checkpoints/ip-adapter.bin"
         controlnet_path = f"./checkpoints/ControlNetModel"
 
         # Load pipeline
@@ -104,16 +206,64 @@ class Predictor(BasePredictor):
             local_files_only=True,
         )
 
-        base_model_path = "stabilityai/stable-diffusion-xl-base-1.0"
+        self.base_weights = "stable-diffusion-xl-base-1.0"
+        weights_info = SDXL_NAME_TO_PATHLIKE[self.base_weights]
         self.pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
-            base_model_path,
+            weights_info["slug"],
             controlnet=self.controlnet,
             torch_dtype=torch.float16,
             cache_dir=CHECKPOINTS_CACHE,
             local_files_only=True,
         )
+
         self.pipe.cuda()
-        self.pipe.load_ip_adapter_instantid(face_adapter)
+        self.pipe.load_ip_adapter_instantid(self.face_adapter)
+
+    def load_weights(self, sdxl_weights):
+        self.base_weights = sdxl_weights
+
+        if sdxl_weights == "stable-diffusion-xl-base-1.0":  # Default, it's always there
+            self.pipe.from_single_file(
+                SDXL_NAME_TO_PATHLIKE[sdxl_weights]["slug"],
+                controlnet=self.controlnet,
+                torch_dtype=torch.float16,
+                cache_dir=CHECKPOINTS_CACHE,
+            )
+            self.pipe.cuda()
+            self.pipe.load_ip_adapter_instantid(self.face_adapter)
+            return
+
+        weights_info = SDXL_NAME_TO_PATHLIKE[self.base_weights]
+        download_url = weights_info["url"]
+
+        path_to_weights_dir = weights_info["path"]
+        if not os.path.exists(path_to_weights_dir):
+            download_weights(download_url, path_to_weights_dir)
+
+        is_hugging_face_model = "slug" in weights_info.keys()
+        path_to_weights_file = os.path.join(
+            path_to_weights_dir,
+            weights_info.get("file", ""),
+        )
+
+        print(f"[~] Loading new SDXL weights: {path_to_weights_file}")
+        if is_hugging_face_model:
+            self.pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
+                weights_info["slug"],
+                controlnet=self.controlnet,
+                torch_dtype=torch.float16,
+                cache_dir=CHECKPOINTS_CACHE,
+                local_files_only=True,
+            )
+        else:
+            self.pipe.from_single_file(
+                path_to_weights_file,
+                controlnet=self.controlnet,
+                torch_dtype=torch.float16,
+                cache_dir=CHECKPOINTS_CACHE,
+            )
+        self.pipe.cuda()
+        self.pipe.load_ip_adapter_instantid(self.face_adapter)
 
     def predict(
         self,
@@ -125,6 +275,30 @@ class Predictor(BasePredictor):
         negative_prompt: str = Input(
             description="Input Negative Prompt",
             default="",
+        ),
+        sdxl_weights: str = Input(
+            description="Pick which base weights you want to use",
+            default="stable-diffusion-xl-base-1.0",
+            choices=[
+                "stable-diffusion-xl-base-1.0",
+                "juggernaut-xl-v8",
+                "afrodite-xl-v2",
+                "albedobase-xl-20",
+                "albedobase-xl-v13",
+                "animagine-xl-30",
+                "anime-art-diffusion-xl",
+                "anime-illust-diffusion-xl",
+                "dreamshaper-xl",
+                # "duchaiten-real3d-nsfw-xl", # TODO: REMOVE THIS ONE
+                "dynavision-xl-v0610",
+                "guofeng4-xl",
+                "hentai-mix-xl",
+                "nightvision-xl-0791",
+                "omnigen-xl",
+                "pony-diffusion-v6-xl",
+                "protovision-xl-high-fidel",
+                "RealVisXL_V3.0",
+            ],
         ),
         width: int = Input(
             description="Width of output image",
@@ -138,18 +312,6 @@ class Predictor(BasePredictor):
             ge=512,
             le=2048,
         ),
-        ip_adapter_scale: float = Input(
-            description="Scale for IP adapter",
-            default=0.8,
-            ge=0,
-            le=1,
-        ),
-        controlnet_conditioning_scale: float = Input(
-            description="Scale for ControlNet conditioning",
-            default=0.8,
-            ge=0,
-            le=1,
-        ),
         num_inference_steps: int = Input(
             description="Number of denoising steps",
             default=30,
@@ -162,8 +324,25 @@ class Predictor(BasePredictor):
             ge=1,
             le=50,
         ),
+        ip_adapter_scale: float = Input(
+            description="Scale for IP adapter",
+            default=0.8,
+            ge=0,
+            le=1,
+        ),
+        controlnet_conditioning_scale: float = Input(
+            description="Scale for ControlNet conditioning",
+            default=0.8,
+            ge=0,
+            le=1,
+        ),
     ) -> Path:
         """Run a single prediction on the model"""
+
+        if sdxl_weights != self.base_weights:
+            self.load_weights(sdxl_weights)
+
+        # Run the prediction process
         if self.width != width or self.height != height:
             print(f"[!] Resizing output to {width}x{height}")
             self.width = width
@@ -195,6 +374,7 @@ class Predictor(BasePredictor):
             guidance_scale=guidance_scale,
         ).images[0]
 
-        output_path = "result.jpg"
+        output_path = f"result.jpg"
         image.save(output_path)
+
         return Path(output_path)
