@@ -1,0 +1,11 @@
+opencv-python~=4.9.0.80
+torch~=2.1.2
+numpy~=1.26.3
+pillow~=10.2.0
+diffusers~=0.25.1
+insightface~=0.7.3
+transformers~=4.37.1
+safetensors~=0.4.2
+huggingface-hub~=0.20.3
+accelerate~=0.26.1
+onnxruntime~=1.16.3
