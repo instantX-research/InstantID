@@ -88,15 +88,18 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
 
     pipe.load_ip_adapter_instantid(face_adapter)
 
-    def toggle_lcm(load):
-        if load:
-            pipe.load_lora_weights("latent-consistency/lcm-lora-sdxl")
-            pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
+    def toggle_lcm_ui(value):
+        if value:
+            return (
+                gr.update(minimum=0, maximum=10, step=1, value=5),
+                gr.update(minimum=0.1, maximum=10.0, step=0.1, value=0)
+            )
         else:
-            pipe.disable_lora()
-            pipe.scheduler = diffusers.EulerDiscreteScheduler.from_config(pipe.scheduler.config)
+            return (
+                gr.update(minimum=20, maximum=100, step=1, value=30),
+                gr.update(minimum=0.1, maximum=10.0, step=0.1, value=5)
+            )
     
-
     def randomize_seed_fn(seed: int, randomize_seed: bool) -> int:
         if randomize_seed:
             seed = random.randint(0, MAX_SEED)
@@ -214,7 +217,16 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
         return p.replace("{prompt}", positive), n + ' ' + negative
 
     def generate_image(face_image_path, pose_image_path, prompt, negative_prompt, style_name, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed, enable_LCM, progress=gr.Progress(track_tqdm=True)):
-
+        if enable_LCM:
+            pipe.load_lora_weights("latent-consistency/lcm-lora-sdxl")
+            pipe.fuse_lora()
+            pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
+            guidance_scale = min(guidance_scale, 1.5)
+            num_steps = min(num_steps, 10)
+        else:
+            pipe.disable_lora()
+            pipe.scheduler = diffusers.EulerDiscreteScheduler.from_config(pipe.scheduler.config)
+    
         if face_image_path is None:
             raise gr.Error(f"Cannot find any input face image! Please upload the face image")
         
@@ -410,6 +422,8 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                 outputs=[gallery, usage_tips]
             )
         
+            enable_LCM.input(fn=toggle_lcm_ui, inputs=[enable_LCM], outputs=[num_steps, guidance_scale], queue=False)
+
         gr.Examples(
             examples=get_example(),
             inputs=[face_file, prompt, style, negative_prompt],
