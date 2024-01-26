@@ -5,6 +5,7 @@
 # Replicate
 checkpoints/
 models/
+safety-cache/
 *.mp4
 *.pth
 *.pt

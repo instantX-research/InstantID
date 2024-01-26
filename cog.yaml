@@ -22,7 +22,6 @@ build:
     - "insightface==0.7.3"
     - "diffusers==0.25.1"
     - "onnxruntime==1.16.3"
-    - "omegaconf"
 
   # commands run after the environment is setup
   run:

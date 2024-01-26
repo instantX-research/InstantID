@@ -28,6 +28,8 @@ from diffusers.pipelines.stable_diffusion.safety_checker import (
     StableDiffusionSafetyChecker,
 )
 from transformers import CLIPFeatureExtractor
+from transformers import CLIPImageProcessor
+
 
 # for `ip-adaper`, `ControlNetModel`, and `stable-diffusion-xl-base-1.0`
 CHECKPOINTS_CACHE = "./checkpoints"
@@ -37,8 +39,10 @@ CHECKPOINTS_URL = "https://weights.replicate.delivery/default/InstantID/checkpoi
 MODELS_CACHE = "./models"
 MODELS_URL = "https://weights.replicate.delivery/default/InstantID/models.tar"
 
-# for nsfw safety checker
-SAFETY_MODEL_ID = "CompVis/stable-diffusion-safety-checker"
+# for the safety checker
+SAFETY_CACHE = "./safety-cache"
+FEATURE_EXTRACTOR = "./feature-extractor"
+SAFETY_URL = "https://weights.replicate.delivery/default/playgroundai/safety-cache.tar"
 
 SDXL_NAME_TO_PATHLIKE = {
     # `stable-diffusion-xl-base-1.0` is the default model, it's speical since it's always on disk (downloaded in setup)
@@ -81,11 +85,6 @@ SDXL_NAME_TO_PATHLIKE = {
         "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--dreamshaper-xl.tar",
         "path": "checkpoints/models--stablediffusionapi--dreamshaper-xl",
     },
-    "duchaiten-real3d-nsfw-xl": {
-        "slug": "stablediffusionapi/duchaiten-real3d-nsfw-xl",
-        "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--duchaiten-real3d-nsfw-xl.tar",
-        "path": "checkpoints/models--stablediffusionapi--duchaiten-real3d-nsfw-xl",
-    },
     "dynavision-xl-v0610": {
         "slug": "stablediffusionapi/dynavision-xl-v0610",
         "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--dynavision-xl-v0610.tar",
@@ -95,11 +94,6 @@ SDXL_NAME_TO_PATHLIKE = {
         "slug": "stablediffusionapi/guofeng4-xl",
         "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--guofeng4-xl.tar",
         "path": "checkpoints/models--stablediffusionapi--guofeng4-xl",
-    },
-    "hentai-mix-xl": {
-        "slug": "stablediffusionapi/hentai-mix-xl",
-        "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--hentai-mix-xl.tar",
-        "path": "checkpoints/models--stablediffusionapi--hentai-mix-xl",
     },
     "juggernaut-xl-v8": {
         "slug": "stablediffusionapi/juggernaut-xl-v8",
@@ -190,7 +184,6 @@ class Predictor(BasePredictor):
         if not os.path.exists(MODELS_CACHE):
             download_weights(MODELS_URL, MODELS_CACHE)
 
-        self.setup_safety_checker()
         self.width, self.height = 640, 640
         self.app = FaceAnalysis(
             name="antelopev2",
@@ -223,35 +216,29 @@ class Predictor(BasePredictor):
 
         self.pipe.cuda()
         self.pipe.load_ip_adapter_instantid(self.face_adapter)
+        self.setup_safety_checker()
 
     def setup_safety_checker(self):
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        if not os.path.exists(SAFETY_CACHE):
+            download_weights(SAFETY_URL, SAFETY_CACHE)
         self.safety_checker = StableDiffusionSafetyChecker.from_pretrained(
-            SAFETY_MODEL_ID,
-            cache_dir=CHECKPOINTS_CACHE,
+            SAFETY_CACHE,
+            torch_dtype=torch.float16,
             local_files_only=True,
-        ).to(self.device)
-        self.feature_extractor = CLIPFeatureExtractor.from_pretrained(
-            "openai/clip-vit-base-patch32"
         )
+        self.safety_checker.to("cuda")
+        self.feature_extractor = CLIPImageProcessor.from_pretrained(FEATURE_EXTRACTOR)
 
-    def is_safe(self, image) -> bool:
-        # Assuming `image` is already an Image object, we remove the Image.open() call
-        image = image.convert("RGB").resize((512, 512))
-        safety_checker_input = self.feature_extractor(
-            images=image, return_tensors="pt"
-        ).to(self.device)
-        _, has_nsfw_concepts = self.safety_checker(
-            images=[image], clip_input=safety_checker_input.pixel_values
+    def run_safety_checker(self, image):
+        safety_checker_input = self.feature_extractor(image, return_tensors="pt").to(
+            "cuda"
         )
-        is_nsfw = any(has_nsfw_concepts)
-        print(
-            f"{is_nsfw=}, The image is safe."
-            if not is_nsfw
-            else "The image is not safe."
+        np_image = np.array(image)  # Convert the single image to a NumPy array
+        image, has_nsfw_concept = self.safety_checker(
+            images=[np_image],  # Pass the NumPy array inside a list
+            clip_input=safety_checker_input.pixel_values.to(torch.float16),
         )
-        return is_nsfw
-        # return "safe" if not is_nsfw else "unsafe"
+        return image, has_nsfw_concept
 
     def load_weights(self, sdxl_weights):
         self.base_weights = sdxl_weights
@@ -411,10 +398,13 @@ class Predictor(BasePredictor):
         ).images[0]
 
         if not disable_safety_checker:
-            is_nsfw = self.is_safe(image)
-            if is_nsfw:
-                print("NSFW content detected in the generated image.")
-                return None
-        output_path = f"/tmp/out.png"
+            _, has_nsfw_content_list = self.run_safety_checker(image)
+            has_nsfw_content = any(has_nsfw_content_list)
+            print(f"NSFW content detected: {has_nsfw_content}")
+            if has_nsfw_content:
+                raise Exception(
+                    "NSFW content detected. Try running it again, or try a different prompt."
+                )
+        output_path = "/tmp/out.png"
         image.save(output_path)
         return Path(output_path)

@@ -166,7 +166,6 @@ models/
 .cog/
 checkpoints/
 models/
-_download_files.py
-_show_filesizes.py
+safety-cache/
 *.tar
 .vscode
