@@ -60,6 +60,13 @@ hf_hub_download(repo_id="InstantX/InstantID", filename="ControlNetModel/diffusio
 hf_hub_download(repo_id="InstantX/InstantID", filename="ip-adapter.bin", local_dir="./checkpoints")
 ```
 
+Or run the following command to download all models:
+
+```python
+pip install -r gradio_demo/requirements.txt
+python gradio_demo/download_models.py
+```
+
 If you cannot access to Huggingface, you can use [hf-mirror](https://hf-mirror.com/) to download models.
 ```python
 export HF_ENDPOINT=https://hf-mirror.com
@@ -171,7 +178,10 @@ Run the following command:
 ```python
 python gradio_demo/app.py
 ```
-
+or ControlNetPose version:
+```python
+gradio_demo/app-ControlnetPose.py 
+```
 ## Usage Tips
 - For higher similarity, increase the weight of controlnet_conditioning_scale (IdentityNet) and ip_adapter_scale (Adapter).
 - For over-saturation, decrease the ip_adapter_scale. If not work, decrease controlnet_conditioning_scale.
