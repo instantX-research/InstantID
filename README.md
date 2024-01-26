@@ -183,9 +183,6 @@ python gradio_demo/app.py
 
 ## Community Resources
 
-### Gradio Demo
-- [instantid.org](https://instantid.org/)
-
 ### Replicate Demo
 - [zsxkib/instant-id](https://replicate.com/zsxkib/instant-id)
 
