@@ -160,7 +160,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
         return case
 
     def run_for_examples(face_file, pose_file, prompt, style, negative_prompt):
-        return generate_image(face_file, pose_file, prompt, negative_prompt, style, 30, 0.8, 0.8, 0.8, 5.0, 42, False)
+        return generate_image(face_file, pose_file, prompt, negative_prompt, style, 30, 0.8, 0.8, 0.8, 5.0, 42, False, True)
 
     def convert_from_cv2_to_image(img: np.ndarray) -> Image:
         return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
@@ -223,7 +223,22 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
         p, n = styles.get(style_name, styles[DEFAULT_STYLE_NAME])
         return p.replace("{prompt}", positive), n + ' ' + negative
 
-    def generate_image(face_image_path, pose_image_path, prompt, negative_prompt, style_name, num_steps, identitynet_strength_ratio, adapter_strength_ratio, control_net_pose_strength, guidance_scale, seed, enable_LCM, progress=gr.Progress(track_tqdm=True)):
+    def generate_image(
+        face_image_path,
+        pose_image_path,
+        prompt,
+        negative_prompt,
+        style_name,
+        num_steps,
+        identitynet_strength_ratio,
+        adapter_strength_ratio,
+        control_net_pose_strength,
+        guidance_scale,
+        seed,
+        enable_LCM,
+        enhance_face_region,
+        progress=gr.Progress(track_tqdm=True),
+    ):
         if enable_LCM:
             pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
             pipe.enable_lora()
@@ -270,7 +285,29 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
             
             width, height = face_kps.size
             openpose_image = openpose(pose_image).resize([width, height])
-        
+
+        if enhance_face_region:
+            pose_np_img = np.array(openpose_image)
+            pose_np_img = cv2.cvtColor(pose_np_img, cv2.COLOR_RGB2GRAY)
+            _, pose_np_img = cv2.threshold(pose_np_img, 0, 255, cv2.THRESH_BINARY)
+            contours, _ = cv2.findContours(
+                pose_np_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE
+            )
+            if len(contours) > 0:
+                cnt = max(contours, key=cv2.contourArea)
+                x, y, w, h = cv2.boundingRect(cnt)
+
+            width, height = openpose_image.size
+
+            control_mask = np.zeros([height, width, 3])
+            # x1, y1, x2, y2 = face_info["bbox"]
+            # x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+            x1, y1, x2, y2 = x, y, x + w, y + h
+            control_mask[y1:y2, x1:x2] = 255
+            control_mask = Image.fromarray(control_mask.astype(np.uint8))
+        else:
+            control_mask = None
+
         generator = torch.Generator(device=device).manual_seed(seed)
         
         print("Start inference...")
@@ -286,6 +323,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                 float(identitynet_strength_ratio),
                 float(control_net_pose_strength),
             ],
+            control_mask=control_mask,
             num_inference_steps=num_steps,
             guidance_scale=guidance_scale,
             height=height,
@@ -348,13 +386,12 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
 
         with gr.Row():
             with gr.Column():
-                
-                # upload face image
-                face_file = gr.Image(label="Upload a photo of your face", type="filepath")
-
-                # optional: upload a reference pose image
-                pose_file = gr.Image(label="Upload a reference pose image (optional)", type="filepath")
-           
+                with gr.Row(equal_height=True):
+                    # upload face image
+                    face_file = gr.Image(label="Upload a photo of your face", type="filepath")
+                    # optional: upload a reference pose image
+                    pose_file = gr.Image(label="Upload a reference pose image (optional)", type="filepath")
+            
                 # prompt
                 prompt = gr.Textbox(label="Prompt",
                         info="Give simple prompt is enough to achieve good face fidelity",
@@ -417,8 +454,9 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                         value=42,
                     )
                     randomize_seed = gr.Checkbox(label="Randomize seed", value=True)
+                    enhance_face_region = gr.Checkbox(label="Enhance non-face region", value=True)
 
-            with gr.Column():
+            with gr.Column(scale=1):
                 gallery = gr.Image(label="Generated Images")
                 usage_tips = gr.Markdown(label="Usage tips of InstantID", value=tips ,visible=False)
 
@@ -433,7 +471,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                 api_name=False,
             ).then(
                 fn=generate_image,
-                inputs=[face_file, pose_file, prompt, negative_prompt, style, num_steps, identitynet_strength_ratio, adapter_strength_ratio, control_net_pose_strength, guidance_scale, seed, enable_LCM],
+                inputs=[face_file, pose_file, prompt, negative_prompt, style, num_steps, identitynet_strength_ratio, adapter_strength_ratio, control_net_pose_strength, guidance_scale, seed, enable_LCM, enhance_face_region],
                 outputs=[gallery, usage_tips]
             )
         
