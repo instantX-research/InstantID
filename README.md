@@ -3,6 +3,7 @@
 <a href='https://arxiv.org/abs/2401.07519'><img src='https://img.shields.io/badge/Technique-Report-red'></a> 
 <a href='https://huggingface.co/papers/2401.07519'><img src='https://img.shields.io/static/v1?label=Paper&message=Huggingface&color=orange'></a> 
 <a href='https://huggingface.co/spaces/InstantX/InstantID'><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue'></a>
+[![GitHub](https://img.shields.io/github/stars/InstantID/InstantID?style=social)](https://github.com/InstantID/InstantID)
 
 **InstantID : Zero-shot Identity-Preserving Generation in Seconds**
 
@@ -178,6 +179,7 @@ python gradio_demo/app.py
 - For higher text control ability, decrease ip_adapter_scale.
 - For specific styles, choose corresponding base model makes differences.
 - We have not supported multi-person yet, will only use the largest face as reference pose.
+- We provide a [style template](https://github.com/ahgsql/StyleSelectorXL/blob/main/sdxl_styles.json) for reference.
 
 ## Community Resources
 
