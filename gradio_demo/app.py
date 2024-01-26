@@ -87,17 +87,19 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
         pipe.scheduler = diffusers.EulerDiscreteScheduler.from_config(pipe.scheduler.config)
 
     pipe.load_ip_adapter_instantid(face_adapter)
-
+    # load and disable LCM
+    pipe.load_lora_weights("latent-consistency/lcm-lora-sdxl")
+    pipe.disable_lora()
     def toggle_lcm_ui(value):
         if value:
             return (
-                gr.update(minimum=0, maximum=10, step=1, value=5),
-                gr.update(minimum=0.1, maximum=10.0, step=0.1, value=0)
+                gr.update(minimum=0, maximum=100, step=1, value=5),
+                gr.update(minimum=0.1, maximum=20.0, step=0.1, value=1.5)
             )
         else:
             return (
-                gr.update(minimum=20, maximum=100, step=1, value=30),
-                gr.update(minimum=0.1, maximum=10.0, step=0.1, value=5)
+                gr.update(minimum=5, maximum=100, step=1, value=30),
+                gr.update(minimum=0.1, maximum=20.0, step=0.1, value=5)
             )
     
     def randomize_seed_fn(seed: int, randomize_seed: bool) -> int:
@@ -209,10 +211,8 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
 
     def generate_image(face_image_path, pose_image_path, prompt, negative_prompt, style_name, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed, enable_LCM, progress=gr.Progress(track_tqdm=True)):
         if enable_LCM:
-            pipe.load_lora_weights("latent-consistency/lcm-lora-sdxl")
+            pipe.enable_lora()
             pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
-            guidance_scale = min(guidance_scale, 2.0)
-            num_steps = min(num_steps, 10)
         else:
             pipe.disable_lora()
             pipe.scheduler = diffusers.EulerDiscreteScheduler.from_config(pipe.scheduler.config)
@@ -275,7 +275,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
             generator=generator
         ).images
 
-        return images, gr.update(visible=True)
+        return images[0], gr.update(visible=True)
 
     ### Description
     title = r"""
@@ -394,7 +394,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                     randomize_seed = gr.Checkbox(label="Randomize seed", value=True)
 
             with gr.Column():
-                gallery = gr.Gallery(label="Generated Images")
+                gallery = gr.Image(label="Generated Images")
                 usage_tips = gr.Markdown(label="Usage tips of InstantID", value=tips ,visible=False)
 
             submit.click(
