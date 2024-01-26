@@ -24,10 +24,10 @@ from pipeline_stable_diffusion_xl_instantid import (
     draw_kps,
 )
 
-from transformers import AutoTokenizer
-from transformers import CLIPTokenizer
-import logging
-import traceback
+from diffusers.pipelines.stable_diffusion.safety_checker import (
+    StableDiffusionSafetyChecker,
+)
+from transformers import CLIPFeatureExtractor
 
 # for `ip-adaper`, `ControlNetModel`, and `stable-diffusion-xl-base-1.0`
 CHECKPOINTS_CACHE = "./checkpoints"
@@ -36,6 +36,9 @@ CHECKPOINTS_URL = "https://weights.replicate.delivery/default/InstantID/checkpoi
 # for `models/antelopev2`
 MODELS_CACHE = "./models"
 MODELS_URL = "https://weights.replicate.delivery/default/InstantID/models.tar"
+
+# for nsfw safety checker
+SAFETY_MODEL_ID = "CompVis/stable-diffusion-safety-checker"
 
 SDXL_NAME_TO_PATHLIKE = {
     # `stable-diffusion-xl-base-1.0` is the default model, it's speical since it's always on disk (downloaded in setup)
@@ -180,12 +183,14 @@ def download_weights(url, dest):
 class Predictor(BasePredictor):
     def setup(self) -> None:
         """Load the model into memory to make running multiple predictions efficient"""
+
         if not os.path.exists(CHECKPOINTS_CACHE):
             download_weights(CHECKPOINTS_URL, CHECKPOINTS_CACHE)
 
         if not os.path.exists(MODELS_CACHE):
             download_weights(MODELS_URL, MODELS_CACHE)
 
+        self.setup_safety_checker()
         self.width, self.height = 640, 640
         self.app = FaceAnalysis(
             name="antelopev2",
@@ -218,6 +223,35 @@ class Predictor(BasePredictor):
 
         self.pipe.cuda()
         self.pipe.load_ip_adapter_instantid(self.face_adapter)
+
+    def setup_safety_checker(self):
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.safety_checker = StableDiffusionSafetyChecker.from_pretrained(
+            SAFETY_MODEL_ID,
+            cache_dir=CHECKPOINTS_CACHE,
+            local_files_only=True,
+        ).to(self.device)
+        self.feature_extractor = CLIPFeatureExtractor.from_pretrained(
+            "openai/clip-vit-base-patch32"
+        )
+
+    def is_safe(self, image) -> bool:
+        # Assuming `image` is already an Image object, we remove the Image.open() call
+        image = image.convert("RGB").resize((512, 512))
+        safety_checker_input = self.feature_extractor(
+            images=image, return_tensors="pt"
+        ).to(self.device)
+        _, has_nsfw_concepts = self.safety_checker(
+            images=[image], clip_input=safety_checker_input.pixel_values
+        )
+        is_nsfw = any(has_nsfw_concepts)
+        print(
+            f"{is_nsfw=}, The image is safe."
+            if not is_nsfw
+            else "The image is not safe."
+        )
+        return is_nsfw
+        # return "safe" if not is_nsfw else "unsafe"
 
     def load_weights(self, sdxl_weights):
         self.base_weights = sdxl_weights
@@ -289,10 +323,8 @@ class Predictor(BasePredictor):
                 "anime-art-diffusion-xl",
                 "anime-illust-diffusion-xl",
                 "dreamshaper-xl",
-                # "duchaiten-real3d-nsfw-xl", # TODO: REMOVE THIS ONE
                 "dynavision-xl-v0610",
                 "guofeng4-xl",
-                "hentai-mix-xl",
                 "nightvision-xl-0791",
                 "omnigen-xl",
                 "pony-diffusion-v6-xl",
@@ -336,6 +368,10 @@ class Predictor(BasePredictor):
             ge=0,
             le=1,
         ),
+        disable_safety_checker: bool = Input(
+            description="Disable safety checker for generated images",
+            default=False,
+        ),
     ) -> Path:
         """Run a single prediction on the model"""
 
@@ -374,7 +410,11 @@ class Predictor(BasePredictor):
             guidance_scale=guidance_scale,
         ).images[0]
 
-        output_path = f"result.jpg"
+        if not disable_safety_checker:
+            is_nsfw = self.is_safe(image)
+            if is_nsfw:
+                print("NSFW content detected in the generated image.")
+                return None
+        output_path = f"/tmp/out.png"
         image.save(output_path)
-
         return Path(output_path)
