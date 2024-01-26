@@ -146,7 +146,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
         return case
 
     def run_for_examples(face_file, prompt, style, negative_prompt):
-        return generate_image(face_file, None, prompt, negative_prompt, style, 30, 0.8, 0.8, 5, 42, False)
+        return generate_image(face_file, None, prompt, negative_prompt, style, 30, 0.8, 0.8, 5, 42, False, True)
 
     def convert_from_cv2_to_image(img: np.ndarray) -> Image:
         return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
@@ -209,7 +209,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
         p, n = styles.get(style_name, styles[DEFAULT_STYLE_NAME])
         return p.replace("{prompt}", positive), n + ' ' + negative
 
-    def generate_image(face_image_path, pose_image_path, prompt, negative_prompt, style_name, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed, enable_LCM, progress=gr.Progress(track_tqdm=True)):
+    def generate_image(face_image_path, pose_image_path, prompt, negative_prompt, style_name, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed, enable_LCM, enhance_face_region, progress=gr.Progress(track_tqdm=True)):
         if enable_LCM:
             pipe.enable_lora()
             pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
@@ -255,7 +255,16 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
             face_kps = draw_kps(pose_image, face_info['kps'])
             
             width, height = face_kps.size
-        
+
+        if enhance_face_region:
+            control_mask = np.zeros([height, width, 3])
+            x1, y1, x2, y2 = face_info["bbox"]
+            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+            control_mask[y1:y2, x1:x2] = 255
+            control_mask = Image.fromarray(control_mask.astype(np.uint8))
+        else:
+            control_mask = None
+                        
         generator = torch.Generator(device=device).manual_seed(seed)
         
         print("Start inference...")
@@ -267,6 +276,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
             negative_prompt=negative_prompt,
             image_embeds=face_emb,
             image=face_kps,
+            control_mask=control_mask,
             controlnet_conditioning_scale=float(identitynet_strength_ratio),
             num_inference_steps=num_steps,
             guidance_scale=guidance_scale,
@@ -392,6 +402,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                         value=42,
                     )
                     randomize_seed = gr.Checkbox(label="Randomize seed", value=True)
+                    enhance_face_region = gr.Checkbox(label="Enhance non-face region", value=True)
 
             with gr.Column():
                 gallery = gr.Image(label="Generated Images")
@@ -408,7 +419,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                 api_name=False,
             ).then(
                 fn=generate_image,
-                inputs=[face_file, pose_file, prompt, negative_prompt, style, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed, enable_LCM],
+                inputs=[face_file, pose_file, prompt, negative_prompt, style, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed, enable_LCM, enhance_face_region],
                 outputs=[gallery, usage_tips]
             )
         
