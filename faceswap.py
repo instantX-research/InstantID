@@ -58,52 +58,42 @@ def prepareMaskAndPoseAndControlImage(pose_image, face_info, padding = 50, mask_
     x1, y1, x2, y2 = face_info['bbox']
     x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
 
-    # check if image can contain padding
-    p_x1 = padding if x1 - padding > 0 else x1
-    p_y1 = padding if y1 - padding > 0 else y1
-    p_x2 = padding if x2 + padding < width else width - x2
-    p_y2 = padding if y2 + padding < height else height - y2
+    # check if image can contain padding & mask
+    m_x1 = max(0, x1 - mask_grow)
+    m_y1 = max(0, y1 - mask_grow)
+    m_x2 = min(width, x2 + mask_grow)
+    m_y2 = min(height, y2 + mask_grow)
+
+    m_x1, m_y1, m_x2, m_y2 = int(m_x1), int(m_y1), int(m_x2), int(m_y2)
+
+    p_x1 = max(0, x1 - padding)
+    p_y1 = max(0, y1 - padding)
+    p_x2 = min(width, x2 + padding)
+    p_y2 = min(height,y2 + padding)
 
     p_x1, p_y1, p_x2, p_y2 = int(p_x1), int(p_y1), int(p_x2), int(p_y2)
 
-    numpy_array = np.array(pose_image)
-    index_y1 = y1 - p_y1; index_y2 = y2 + p_y2
-    index_x1 = x1 - p_x1; index_x2 = x2 + p_x2
-
-    # cut the face with paddings
-    img = numpy_array[index_y1:index_y2, index_x1:index_x2]
-
-    img = Image.fromarray(img.astype(np.uint8))
-    original_width, original_height = img.size
-
     # mask
-    mask = np.array(img)
-    mask[:, :] = 0
-
-    m_px1 =  p_x1 - mask_grow if p_x1 - mask_grow > 0 else 0
-    m_py1 =  p_y1 - mask_grow if p_y1 - mask_grow > 0 else 0
-    m_px2 =  mask_grow if original_width - p_x2 + mask_grow < original_width  else original_width - p_x2
-    m_py2 =  mask_grow if original_height - p_y2 + mask_grow < original_height else original_height - p_y2
-
-    mask[
-        m_py1:(original_height - p_y2 + m_py2),
-        m_px1:(original_width - p_x2 + m_px2)
-    ] = 255
-
+    mask = np.zeros([height, width, 3])
+    mask[m_y1:m_y2, m_x1:m_x2] = 255
+    mask = mask[p_y1:p_y2, p_x1:p_x2]
     mask = Image.fromarray(mask.astype(np.uint8))
 
+    image = np.array(pose_image)[p_y1:p_y2, p_x1:p_x2]
+    image = Image.fromarray(image.astype(np.uint8))
+
     # resize image and KPS
-    kps -= [index_x1, index_y1]
+    original_width, original_height = image.size
+    kps -= [p_x1, p_y1]
     if resize:
         mask = resize_img(mask)
-        img = resize_img(img)
-        new_width, new_height = img.size
+        image = resize_img(image)
+        new_width, new_height = image.size
         kps *= [new_width / original_width, new_height / original_height]
-    control_image = draw_kps(img, kps)
+    control_image = draw_kps(image, kps)
 
-    # (mask, pose, control), (original positon of face with padding: x, y, w, h)
-    return (mask, img, control_image), (index_x1, index_y1, original_width, original_height)
-
+    # (mask, pose, control), (original positon face + padding: x, y, w, h)
+    return (mask, image, control_image), (p_x1, p_y1, original_width, original_height)
 
 if __name__ == '__main__':
 
