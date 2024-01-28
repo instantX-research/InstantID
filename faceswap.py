@@ -124,7 +124,6 @@ if __name__ == '__main__':
     pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
 
     # load adapter
-    pipe.load_ip_adapter_instantid(face_adapter)
     pipe.load_lora_weights(adapter_id)
     pipe.fuse_lora()
 
