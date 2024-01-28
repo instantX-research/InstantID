@@ -92,7 +92,7 @@ def prepareMaskAndPoseAndControlImage(pose_image, face_info, padding = 50, mask_
         kps *= [new_width / original_width, new_height / original_height]
     control_image = draw_kps(image, kps)
 
-    # (mask, pose, control), (original positon face + padding: x, y, w, h)
+    # (mask, pose, control PIL images), (original positon face + padding: x, y, w, h)
     return (mask, image, control_image), (p_x1, p_y1, original_width, original_height)
 
 if __name__ == '__main__':
@@ -119,11 +119,11 @@ if __name__ == '__main__':
         torch_dtype=torch.float16,
     )
     pipe.cuda()
-    pipe.load_ip_adapter_instantid(face_adapter)
 
     pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
 
     # load adapter
+    pipe.load_ip_adapter_instantid(face_adapter)
     pipe.load_lora_weights(adapter_id)
     pipe.fuse_lora()
 
@@ -161,9 +161,10 @@ if __name__ == '__main__':
         guidance_scale=0.6
     ).images[0]
 
+    # processed face with padding
     image.save('face.jpg')
 
-    # integrate cropped result into the image
+    # integrate cropped result into the pose image
     x, y, w, h = position
 
     image = image.resize((w, h))
