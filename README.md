@@ -196,6 +196,12 @@ python gradio_demo/app.py
 ### Replicate Demo
 - [zsxkib/instant-id](https://replicate.com/zsxkib/instant-id)
 
+### RunPod Template
+- [InstantID RunPod Template](https://runpod.io/gsc?template=10apqooxnz&ref=2xxro4sy)
+
+### Docker Image
+- [ashleykleynhans/instantid-docker](https://github.com/ashleykleynhans/instantid-docker)
+
 ### WebUI
 - [Mikubill/sd-webui-controlnet](https://github.com/Mikubill/sd-webui-controlnet/discussions/2589)
 
