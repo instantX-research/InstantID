@@ -1,4 +1,5 @@
-# InstantID
+# <div align='center' >InstantID</div>
+
 <a href='https://instantid.github.io/'><img src='https://img.shields.io/badge/Project-Page-green'></a> 
 <a href='https://arxiv.org/abs/2401.07519'><img src='https://img.shields.io/badge/Technique-Report-red'></a> 
 <a href='https://huggingface.co/papers/2401.07519'><img src='https://img.shields.io/static/v1?label=Paper&message=Huggingface&color=orange'></a> 
@@ -14,9 +15,9 @@ InstantID is a new state-of-the-art tuning-free method to achieve ID-Preserving 
 <img src='assets/applications.png'>
 
 ## Release
-- [2024/1/23] 🔥 Our pipeline has been merged into [diffusers](https://github.com/huggingface/diffusers/blob/main/examples/community/pipeline_stable_diffusion_xl_instantid.py)!
-- [2024/1/22] 🔥 We release the [pre-trained checkpoints](https://huggingface.co/InstantX/InstantID), [inference code](https://github.com/InstantID/InstantID/blob/main/infer.py) and [gradio demo](https://huggingface.co/spaces/InstantX/InstantID)!
-- [2024/1/15] 🔥 We release the [technical report](https://arxiv.org/abs/2401.07519).
+- [2024/01/23] 🔥 Our pipeline has been merged into [diffusers](https://github.com/huggingface/diffusers/blob/main/examples/community/pipeline_stable_diffusion_xl_instantid.py)!
+- [2024/01/22] 🔥 We release the [pre-trained checkpoints](https://huggingface.co/InstantX/InstantID), [inference code](https://github.com/InstantID/InstantID/blob/main/infer.py) and [gradio demo](https://huggingface.co/spaces/InstantX/InstantID)!
+- [2024/01/15] 🔥 We release the [technical report](https://arxiv.org/abs/2401.07519).
 - [2023/12/11] 🔥 We launch the [project page](https://instantid.github.io/).
 
 ## Demos
