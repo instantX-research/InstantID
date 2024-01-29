@@ -8,6 +8,7 @@ import torch
 import random
 import numpy as np
 import argparse
+import logging
 
 import PIL
 from PIL import Image
@@ -18,19 +19,26 @@ from diffusers.models import ControlNetModel
 
 from huggingface_hub import hf_hub_download
 
-import insightface
 from insightface.app import FaceAnalysis
 
 from style_template import styles
 from pipeline_stable_diffusion_xl_instantid import StableDiffusionXLInstantIDPipeline
-from model_util import load_models_xl, get_torch_device, torch_gc
+from model_util import load_models_xl
 
 import gradio as gr
 
 # global variable
 MAX_SEED = np.iinfo(np.int32).max
-device = get_torch_device()
-dtype = torch.float16 if str(device).__contains__("cuda") else torch.float32
+torch_dtype = torch.float16
+
+if torch.backends.mps.is_available():
+    device = "mps"
+    torch_dtype = torch.float32
+elif torch.cuda.is_available():
+    device = "cuda"
+else:
+    device = "cpu"
+
 STYLE_NAMES = list(styles.keys())
 DEFAULT_STYLE_NAME = "Watercolor"
 
@@ -42,227 +50,274 @@ app.prepare(ctx_id=0, det_size=(640, 640))
 face_adapter = f'./checkpoints/ip-adapter.bin'
 controlnet_path = f'./checkpoints/ControlNetModel'
 
-# Load pipeline
-controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=dtype)
+# Load ControlNet
+controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=torch_dtype)
 
-def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
 
-    if pretrained_model_name_or_path.endswith(
-            ".ckpt"
-        ) or pretrained_model_name_or_path.endswith(".safetensors"):
-            scheduler_kwargs = hf_hub_download(
-                repo_id="wangqixun/YamerMIX_v8",
-                subfolder="scheduler",
-                filename="scheduler_config.json",
-            )
+def get_pipeline(model_path):
+    if model_path.endswith(
+        ".ckpt"
+    ) or model_path.endswith(".safetensors"):
+        scheduler_kwargs = hf_hub_download(
+            repo_id="wangqixun/YamerMIX_v8",
+            subfolder="scheduler",
+            filename="scheduler_config.json",
+        )
 
-            (tokenizers, text_encoders, unet, _, vae) = load_models_xl(
-                pretrained_model_name_or_path=pretrained_model_name_or_path,
-                scheduler_name=None,
-                weight_dtype=dtype,
-            )
+        (tokenizers, text_encoders, unet, _, vae) = load_models_xl(
+            pretrained_model_name_or_path=model_path,
+            scheduler_name=None,
+            weight_dtype=torch_dtype,
+        )
 
-            scheduler = diffusers.EulerDiscreteScheduler.from_config(scheduler_kwargs)
-            pipe = StableDiffusionXLInstantIDPipeline(
-                vae=vae,
-                text_encoder=text_encoders[0],
-                text_encoder_2=text_encoders[1],
-                tokenizer=tokenizers[0],
-                tokenizer_2=tokenizers[1],
-                unet=unet,
-                scheduler=scheduler,
-                controlnet=controlnet,
-            ).to(device)
+        scheduler = diffusers.EulerDiscreteScheduler.from_config(scheduler_kwargs)
+        pipe = StableDiffusionXLInstantIDPipeline(
+            vae=vae,
+            text_encoder=text_encoders[0],
+            text_encoder_2=text_encoders[1],
+            tokenizer=tokenizers[0],
+            tokenizer_2=tokenizers[1],
+            unet=unet,
+            scheduler=scheduler,
+            controlnet=controlnet,
+        )
 
     else:
         pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
-            pretrained_model_name_or_path,
+            model_path,
             controlnet=controlnet,
-            torch_dtype=dtype,
+            torch_dtype=torch_dtype,
             safety_checker=None,
             feature_extractor=None,
-        ).to(device)
+        )
 
         pipe.scheduler = diffusers.EulerDiscreteScheduler.from_config(pipe.scheduler.config)
 
+    if device == "mps":
+        pipe.to("mps", torch_dtype)
+        pipe.enable_attention_slicing()
+    elif device == "cuda":
+        pipe.cuda()
+
     pipe.load_ip_adapter_instantid(face_adapter)
 
-    def randomize_seed_fn(seed: int, randomize_seed: bool) -> int:
-        if randomize_seed:
-            seed = random.randint(0, MAX_SEED)
-        return seed
+    if device == "mps" or device == "cuda":
+        pipe.image_proj_model.to(device)
+        pipe.unet.to(device)
 
-    def swap_to_gallery(images):
-        return gr.update(value=images, visible=True), gr.update(visible=True), gr.update(visible=False)
+    return pipe
 
-    def upload_example_to_gallery(images, prompt, style, negative_prompt):
-        return gr.update(value=images, visible=True), gr.update(visible=True), gr.update(visible=False)
 
-    def remove_back_to_files():
-        return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True)
+def randomize_seed_fn(seed: int, randomize_seed: bool) -> int:
+    if randomize_seed:
+        seed = random.randint(0, MAX_SEED)
+    return seed
 
-    def remove_tips():
-        return gr.update(visible=False)
 
-    def get_example():
-        case = [
-            [
-                ['./examples/yann-lecun_resize.jpg'],
-                "a man",
-                "Snow",
-                "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, green",
-            ],
-            [
-                ['./examples/musk_resize.jpeg'],
-                "a man",
-                "Mars",
-                "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, green",
-            ],
-            [
-                ['./examples/sam_resize.png'],
-                "a man",
-                "Jungle",
-                "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, gree",
-            ],
-            [
-                ['./examples/schmidhuber_resize.png'],
-                "a man",
-                "Neon",
-                "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, green",
-            ],
-            [
-                ['./examples/kaifu_resize.png'],
-                "a man",
-                "Vibrant Color",
-                "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, green",
-            ],
-        ]
-        return case
+def swap_to_gallery(images):
+    return gr.update(value=images, visible=True), gr.update(visible=True), gr.update(visible=False)
 
-    def convert_from_cv2_to_image(img: np.ndarray) -> Image:
-        return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
 
-    def convert_from_image_to_cv2(img: Image) -> np.ndarray:
-        return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+def upload_example_to_gallery(images, prompt, style, negative_prompt):
+    return gr.update(value=images, visible=True), gr.update(visible=True), gr.update(visible=False)
 
-    def draw_kps(image_pil, kps, color_list=[(255,0,0), (0,255,0), (0,0,255), (255,255,0), (255,0,255)]):
-        stickwidth = 4
-        limbSeq = np.array([[0, 2], [1, 2], [3, 2], [4, 2]])
-        kps = np.array(kps)
 
-        w, h = image_pil.size
-        out_img = np.zeros([h, w, 3])
+def remove_back_to_files():
+    return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True)
 
-        for i in range(len(limbSeq)):
-            index = limbSeq[i]
-            color = color_list[index[0]]
 
-            x = kps[index][:, 0]
-            y = kps[index][:, 1]
-            length = ((x[0] - x[1]) ** 2 + (y[0] - y[1]) ** 2) ** 0.5
-            angle = math.degrees(math.atan2(y[0] - y[1], x[0] - x[1]))
-            polygon = cv2.ellipse2Poly((int(np.mean(x)), int(np.mean(y))), (int(length / 2), stickwidth), int(angle), 0, 360, 1)
-            out_img = cv2.fillConvexPoly(out_img.copy(), polygon, color)
-        out_img = (out_img * 0.6).astype(np.uint8)
+def remove_tips():
+    return gr.update(visible=False)
 
-        for idx_kp, kp in enumerate(kps):
-            color = color_list[idx_kp]
-            x, y = kp
-            out_img = cv2.circle(out_img.copy(), (int(x), int(y)), 10, color, -1)
 
-        out_img_pil = Image.fromarray(out_img.astype(np.uint8))
-        return out_img_pil
+def get_example():
+    case = [
+        [
+            ['./examples/yann-lecun_resize.jpg'],
+            "a man",
+            "Snow",
+            "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, green",
+        ],
+        [
+            ['./examples/musk_resize.jpeg'],
+            "a man",
+            "Mars",
+            "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, green",
+        ],
+        [
+            ['./examples/sam_resize.png'],
+            "a man",
+            "Jungle",
+            "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, gree",
+        ],
+        [
+            ['./examples/schmidhuber_resize.png'],
+            "a man",
+            "Neon",
+            "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, green",
+        ],
+        [
+            ['./examples/kaifu_resize.png'],
+            "a man",
+            "Vibrant Color",
+            "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, green",
+        ],
+    ]
+    return case
 
-    def resize_img(input_image, max_side=1280, min_side=1024, size=None, 
-                pad_to_max_side=False, mode=PIL.Image.BILINEAR, base_pixel_number=64):
 
-            w, h = input_image.size
-            if size is not None:
-                w_resize_new, h_resize_new = size
-            else:
-                ratio = min_side / min(h, w)
-                w, h = round(ratio*w), round(ratio*h)
-                ratio = max_side / max(h, w)
-                input_image = input_image.resize([round(ratio*w), round(ratio*h)], mode)
-                w_resize_new = (round(ratio * w) // base_pixel_number) * base_pixel_number
-                h_resize_new = (round(ratio * h) // base_pixel_number) * base_pixel_number
-            input_image = input_image.resize([w_resize_new, h_resize_new], mode)
+def convert_from_cv2_to_image(img: np.ndarray) -> Image:
+    return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
 
-            if pad_to_max_side:
-                res = np.ones([max_side, max_side, 3], dtype=np.uint8) * 255
-                offset_x = (max_side - w_resize_new) // 2
-                offset_y = (max_side - h_resize_new) // 2
-                res[offset_y:offset_y+h_resize_new, offset_x:offset_x+w_resize_new] = np.array(input_image)
-                input_image = Image.fromarray(res)
-            return input_image
 
-    def apply_style(style_name: str, positive: str, negative: str = "") -> tuple[str, str]:
-        p, n = styles.get(style_name, styles[DEFAULT_STYLE_NAME])
-        return p.replace("{prompt}", positive), n + ' ' + negative
+def convert_from_image_to_cv2(img: Image) -> np.ndarray:
+    return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
-    def generate_image(face_image, pose_image, prompt, negative_prompt, style_name, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed, progress=gr.Progress(track_tqdm=True)):
 
-        if face_image is None:
-            raise gr.Error(f"Cannot find any input face image! Please upload the face image")
-        
-        if prompt is None:
-            prompt = "a person"
-        
-        # apply the style template
-        prompt, negative_prompt = apply_style(style_name, prompt, negative_prompt)
-        
-        face_image = load_image(face_image[0])
-        face_image = resize_img(face_image)
-        face_image_cv2 = convert_from_image_to_cv2(face_image)
-        height, width, _ = face_image_cv2.shape
-        
-        # Extract face features
-        face_info = app.get(face_image_cv2)
-        
+def draw_kps(image_pil, kps, color_list=[(255,0,0), (0,255,0), (0,0,255), (255,255,0), (255,0,255)]):
+    stickwidth = 4
+    limbSeq = np.array([[0, 2], [1, 2], [3, 2], [4, 2]])
+    kps = np.array(kps)
+
+    w, h = image_pil.size
+    out_img = np.zeros([h, w, 3])
+
+    for i in range(len(limbSeq)):
+        index = limbSeq[i]
+        color = color_list[index[0]]
+
+        x = kps[index][:, 0]
+        y = kps[index][:, 1]
+        length = ((x[0] - x[1]) ** 2 + (y[0] - y[1]) ** 2) ** 0.5
+        angle = math.degrees(math.atan2(y[0] - y[1], x[0] - x[1]))
+        polygon = cv2.ellipse2Poly((int(np.mean(x)), int(np.mean(y))), (int(length / 2), stickwidth), int(angle), 0, 360, 1)
+        out_img = cv2.fillConvexPoly(out_img.copy(), polygon, color)
+    out_img = (out_img * 0.6).astype(np.uint8)
+
+    for idx_kp, kp in enumerate(kps):
+        color = color_list[idx_kp]
+        x, y = kp
+        out_img = cv2.circle(out_img.copy(), (int(x), int(y)), 10, color, -1)
+
+    out_img_pil = Image.fromarray(out_img.astype(np.uint8))
+    return out_img_pil
+
+
+def resize_img(input_image, max_side=1280, min_side=1024, size=None,
+               pad_to_max_side=False, mode=PIL.Image.BILINEAR, base_pixel_number=64):
+
+    w, h = input_image.size
+    if size is not None:
+        w_resize_new, h_resize_new = size
+    else:
+        ratio = min_side / min(h, w)
+        w, h = round(ratio*w), round(ratio*h)
+        ratio = max_side / max(h, w)
+        input_image = input_image.resize([round(ratio*w), round(ratio*h)], mode)
+        w_resize_new = (round(ratio * w) // base_pixel_number) * base_pixel_number
+        h_resize_new = (round(ratio * h) // base_pixel_number) * base_pixel_number
+    input_image = input_image.resize([w_resize_new, h_resize_new], mode)
+
+    if pad_to_max_side:
+        res = np.ones([max_side, max_side, 3], dtype=np.uint8) * 255
+        offset_x = (max_side - w_resize_new) // 2
+        offset_y = (max_side - h_resize_new) // 2
+        res[offset_y:offset_y+h_resize_new, offset_x:offset_x+w_resize_new] = np.array(input_image)
+        input_image = Image.fromarray(res)
+    return input_image
+
+
+def apply_style(style_name: str, positive: str, negative: str = "") -> tuple[str, str]:
+    p, n = styles.get(style_name, styles[DEFAULT_STYLE_NAME])
+    return p.replace("{prompt}", positive), n + ' ' + negative
+
+
+def generate_image(
+    model_path,
+    face_image,
+    pose_image,
+    prompt,
+    negative_prompt,
+    style_name,
+    num_steps,
+    identitynet_strength_ratio,
+    adapter_strength_ratio,
+    guidance_scale,
+    seed,
+    progress=gr.Progress(track_tqdm=True)
+        ):
+
+    if face_image is None:
+        raise gr.Error(f"Cannot find any input face image! Please upload the face image")
+
+    if prompt is None:
+        prompt = "a person"
+
+    # apply the style template
+    prompt, negative_prompt = apply_style(style_name, prompt, negative_prompt)
+
+    face_image = load_image(face_image[0])
+    face_image = resize_img(face_image)
+    face_image_cv2 = convert_from_image_to_cv2(face_image)
+    height, width, _ = face_image_cv2.shape
+
+    # Extract face features
+    face_info = app.get(face_image_cv2)
+
+    if len(face_info) == 0:
+        raise gr.Error(f"Cannot find any face in the image! Please upload another person image")
+
+    face_info = sorted(face_info, key=lambda x:(x["bbox"][2]-x["bbox"][0])*x["bbox"][3]-x["bbox"][1])[-1]  # only use the maximum face
+    face_emb = face_info["embedding"]
+    face_kps = draw_kps(convert_from_cv2_to_image(face_image_cv2), face_info["kps"])
+
+    if pose_image is not None:
+        pose_image = load_image(pose_image[0])
+        pose_image = resize_img(pose_image)
+        pose_image_cv2 = convert_from_image_to_cv2(pose_image)
+
+        face_info = app.get(pose_image_cv2)
+
         if len(face_info) == 0:
-            raise gr.Error(f"Cannot find any face in the image! Please upload another person image")
-        
-        face_info = sorted(face_info, key=lambda x:(x['bbox'][2]-x['bbox'][0])*x['bbox'][3]-x['bbox'][1])[-1]  # only use the maximum face
-        face_emb = face_info['embedding']
-        face_kps = draw_kps(convert_from_cv2_to_image(face_image_cv2), face_info['kps'])
-        
-        if pose_image is not None:
-            pose_image = load_image(pose_image[0])
-            pose_image = resize_img(pose_image)
-            pose_image_cv2 = convert_from_image_to_cv2(pose_image)
-            
-            face_info = app.get(pose_image_cv2)
-            
-            if len(face_info) == 0:
-                raise gr.Error(f"Cannot find any face in the reference image! Please upload another person image")
-            
-            face_info = face_info[-1]
-            face_kps = draw_kps(pose_image, face_info['kps'])
-            
-            width, height = face_kps.size
-        
-        generator = torch.Generator(device=device).manual_seed(seed)
-        
-        print("Start inference...")
-        print(f"[Debug] Prompt: {prompt}, \n[Debug] Neg Prompt: {negative_prompt}")
-        
-        pipe.set_ip_adapter_scale(adapter_strength_ratio)
-        images = pipe(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            image_embeds=face_emb,
-            image=face_kps,
-            controlnet_conditioning_scale=float(identitynet_strength_ratio),
-            num_inference_steps=num_steps,
-            guidance_scale=guidance_scale,
-            height=height,
-            width=width,
-            generator=generator
-        ).images
+            raise gr.Error(f"Cannot find any face in the reference image! Please upload another person image")
 
-        return images, gr.update(visible=True)
+        face_info = face_info[-1]
+        face_kps = draw_kps(pose_image, face_info['kps'])
 
-    ### Description
+        width, height = face_kps.size
+
+    generator = torch.Generator(device=device).manual_seed(seed)
+
+    logging.info("Start inference...")
+    logging.debug(f"Model Path: {model_path}")
+    logging.debug(f"Prompt: {prompt}")
+    logging.debug(f"Negative Prompt: {negative_prompt}")
+    logging.info(f"Loading Pipeline for: {model_path}")
+
+    pipe = get_pipeline(model_path)
+    pipe.set_ip_adapter_scale(adapter_strength_ratio)
+    images = pipe(
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        image_embeds=face_emb,
+        image=face_kps,
+        controlnet_conditioning_scale=float(identitynet_strength_ratio),
+        num_inference_steps=num_steps,
+        guidance_scale=guidance_scale,
+        height=height,
+        width=width,
+        generator=generator
+    ).images
+
+    return images, gr.update(visible=True)
+
+
+def clear_cuda_cache():
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def ui(launch_kwargs):
     title = r"""
     <h1 align="center">InstantID: Zero-shot Identity-Preserving Generation in Seconds</h1>
     """
@@ -315,7 +370,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
 
         with gr.Row():
             with gr.Column():
-                
+
                 # upload face image
                 face_files = gr.Files(
                             label="Upload a photo of your face",
@@ -324,7 +379,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                 uploaded_faces = gr.Gallery(label="Your images", visible=False, columns=1, rows=1, height=512)
                 with gr.Column(visible=False) as clear_button_face:
                     remove_and_reupload_faces = gr.ClearButton(value="Remove and upload new ones", components=face_files, size="sm")
-                
+
                 # optional: upload a reference pose image
                 pose_files = gr.Files(
                             label="Upload a reference pose image (optional)",
@@ -333,17 +388,17 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                 uploaded_poses = gr.Gallery(label="Your images", visible=False, columns=1, rows=1, height=512)
                 with gr.Column(visible=False) as clear_button_pose:
                     remove_and_reupload_poses = gr.ClearButton(value="Remove and upload new ones", components=pose_files, size="sm")
-                
+
                 # prompt
                 prompt = gr.Textbox(label="Prompt",
                         info="Give simple prompt is enough to achieve good face fidelity",
                         placeholder="A photo of a person",
                         value="")
-                
+
                 submit = gr.Button("Submit", variant="primary")
-                
+
                 style = gr.Dropdown(label="Style template", choices=STYLE_NAMES, value=DEFAULT_STYLE_NAME)
-                
+
                 # strength
                 identitynet_strength_ratio = gr.Slider(
                     label="IdentityNet strength (for fidelity)",
@@ -359,14 +414,14 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                     step=0.05,
                     value=0.80,
                 )
-                
+
                 with gr.Accordion(open=False, label="Advanced Options"):
                     negative_prompt = gr.Textbox(
-                        label="Negative Prompt", 
+                        label="Negative Prompt",
                         placeholder="low quality",
                         value="(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, green",
                     )
-                    num_steps = gr.Slider( 
+                    num_steps = gr.Slider(
                         label="Number of sample steps",
                         minimum=20,
                         maximum=100,
@@ -401,7 +456,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
 
             submit.click(
                 fn=remove_tips,
-                outputs=usage_tips,            
+                outputs=usage_tips,
             ).then(
                 fn=randomize_seed_fn,
                 inputs=[seed, randomize_seed],
@@ -410,10 +465,23 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                 api_name=False,
             ).then(
                 fn=generate_image,
-                inputs=[face_files, pose_files, prompt, negative_prompt, style, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed],
+                inputs=[
+                    face_files,
+                    pose_files,
+                    prompt,
+                    negative_prompt,
+                    style,
+                    num_steps,
+                    identitynet_strength_ratio,
+                    adapter_strength_ratio,
+                    guidance_scale,
+                    seed
+                ],
                 outputs=[gallery, usage_tips]
+            ).then(
+                fn=clear_cuda_cache
             )
-        
+
         gr.Examples(
             examples=get_example(),
             inputs=[face_files, prompt, style, negative_prompt],
@@ -421,16 +489,37 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
             fn=upload_example_to_gallery,
             outputs=[uploaded_faces, clear_button_face, face_files],
         )
-        
+
         gr.Markdown(article)
 
-    demo.launch()
+    demo.launch(**launch_kwargs)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--pretrained_model_name_or_path", type=str, default="wangqixun/YamerMIX_v8"
-    )
+    parser.add_argument("--inbrowser", action="store_true", help="Open in browser")
+    parser.add_argument("--listen", type=str, default="0.0.0.0" if "SPACE_ID" in os.environ else "127.0.0.1", help="IP to listen on for connections to Gradio")
+    parser.add_argument("--server_port", type=int, default=7860, help="Server port")
+    parser.add_argument("--share", action="store_true", help="Share the Gradio UI")
+    parser.add_argument("--model_path", type=str, default="wangqixun/YamerMIX_v8")
+    parser.add_argument("--medvram", action="store_true", help="Medium VRAM settings")
+    parser.add_argument("--lowvram", action="store_true", help="Low VRAM settings")
+    parser.add_argument("--username", type=str, default="", help="Username for authentication")
+    parser.add_argument("--password", type=str, default="", help="Password for authentication")
     args = parser.parse_args()
 
-    main(args.pretrained_model_name_or_path)
+    logging.basicConfig(level=logging.INFO, stream=sys.stderr)
+
+    launch_kwargs = {}
+    launch_kwargs["server_name"] = args.listen
+
+    if args.username and args.password:
+        launch_kwargs["auth"] = (args.username, args.password)
+    if args.server_port:
+        launch_kwargs["server_port"] = args.server_port
+    if args.inbrowser:
+        launch_kwargs["inbrowser"] = args.inbrowser
+    if args.share:
+        launch_kwargs["share"] = args.share
+
+    ui(launch_kwargs)
