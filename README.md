@@ -1,4 +1,4 @@
-# <center> InstantID
+# <center> InstantID123123
 
 <a href='https://instantid.github.io/'><img src='https://img.shields.io/badge/Project-Page-green'></a>
 <a href='https://arxiv.org/abs/2401.07519'><img src='https://img.shields.io/badge/Technique-Report-red'></a>
