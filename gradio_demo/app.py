@@ -39,15 +39,30 @@ elif torch.cuda.is_available():
 else:
     device = "cpu"
 
+LOG_LEVEL = logging.INFO
 STYLE_NAMES = list(styles.keys())
 DEFAULT_STYLE_NAME = "Watercolor"
 DEFAULT_MODEL = "wangqixun/YamerMIX_v8"
 MODEL_DIRECTORY = "./models"
 
-# Download checkpoints
-hf_hub_download(repo_id="InstantX/InstantID", filename="ControlNetModel/config.json", local_dir="./checkpoints")
-hf_hub_download(repo_id="InstantX/InstantID", filename="ControlNetModel/diffusion_pytorch_model.safetensors", local_dir="./checkpoints")
-hf_hub_download(repo_id="InstantX/InstantID", filename="ip-adapter.bin", local_dir="./checkpoints")
+# Download ControlNet checkpoint from Hugging Face Hub
+hf_hub_download(
+    repo_id="InstantX/InstantID",
+    filename="ControlNetModel/config.json",
+    local_dir="./checkpoints"
+)
+hf_hub_download(
+    repo_id="InstantX/InstantID",
+    filename="ControlNetModel/diffusion_pytorch_model.safetensors",
+    local_dir="./checkpoints"
+)
+
+# Download IP-Adapter checkpoint from Hugging Face Hub
+hf_hub_download(
+    repo_id="InstantX/InstantID",
+    filename="ip-adapter.bin",
+    local_dir="./checkpoints"
+)
 
 # Load face encoder
 app = FaceAnalysis(name="antelopev2", root='./', providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
@@ -296,9 +311,9 @@ def generate_image(
     generator = torch.Generator(device=device).manual_seed(seed)
 
     logging.info("Start inference...")
-    logging.debug(f"Model Path: {model_path}")
-    logging.debug(f"Prompt: {prompt}")
-    logging.debug(f"Negative Prompt: {negative_prompt}")
+    logging.info(f"Model Path: {model_path}")
+    logging.info(f"Prompt: {prompt}")
+    logging.info(f"Negative Prompt: {negative_prompt}")
 
     pipe = get_pipeline(model_path)
     pipe.set_ip_adapter_scale(adapter_strength_ratio)
@@ -332,6 +347,21 @@ def get_available_models():
             files.append(os.path.join(MODEL_DIRECTORY, file))
 
     return files
+
+
+def refresh_models(selected_model):
+    models = [DEFAULT_MODEL] + get_available_models()
+
+    if selected_model in models:
+        default_model = selected_model
+    else:
+        default_model = DEFAULT_MODEL
+
+    return gr.Dropdown(
+        label="Model path",
+        choices=models,
+        value=default_model
+    )
 
 
 def launch_ui(launch_kwargs):
@@ -387,9 +417,6 @@ def launch_ui(launch_kwargs):
         theme=gr.themes.Default()
     )
 
-    available_models = get_available_models()
-    model_choices = [DEFAULT_MODEL] + available_models
-
     with interface:
         gr.Markdown(title)
         gr.Markdown(description)
@@ -404,29 +431,52 @@ def launch_ui(launch_kwargs):
                         )
                 uploaded_faces = gr.Gallery(label="Your images", visible=False, columns=1, rows=1, height=512)
                 with gr.Column(visible=False) as clear_button_face:
-                    remove_and_reupload_faces = gr.ClearButton(value="Remove and upload new ones", components=face_files, size="sm")
+                    remove_and_reupload_faces = gr.ClearButton(
+                        value="Remove and upload new ones",
+                        components=face_files,
+                        size="sm"
+                    )
 
                 # optional: upload a reference pose image
                 pose_files = gr.Files(
                             label="Upload a reference pose image (optional)",
                             file_types=["image"]
                         )
-                uploaded_poses = gr.Gallery(label="Your images", visible=False, columns=1, rows=1, height=512)
+                uploaded_poses = gr.Gallery(
+                    label="Your images",
+                    visible=False,
+                    columns=1,
+                    rows=1,
+                    height=512
+                )
                 with gr.Column(visible=False) as clear_button_pose:
-                    remove_and_reupload_poses = gr.ClearButton(value="Remove and upload new ones", components=pose_files, size="sm")
+                    remove_and_reupload_poses = gr.ClearButton(
+                        value="Remove and upload new ones",
+                        components=pose_files,
+                        size="sm"
+                    )
 
-                # prompt
-                prompt = gr.Textbox(label="Prompt",
-                        info="Give simple prompt is enough to achieve good face fidelity",
-                        placeholder="A photo of a person",
-                        value="")
+                prompt = gr.Textbox(
+                    label="Prompt",
+                    info="Give simple prompt is enough to achieve good face fidelity",
+                    placeholder="A photo of a person",
+                    value=""
+                )
 
                 submit = gr.Button("Submit", variant="primary")
 
-                model = gr.Dropdown(label="Model path", choices=model_choices, value=DEFAULT_MODEL)
+                # Allow a different model to be selected by loading models from disk
+                # and displaying them in a dropdown
+                model_choices = [DEFAULT_MODEL] + get_available_models()
+                model = gr.Dropdown(
+                    label="Model path",
+                    choices=model_choices,
+                    value=DEFAULT_MODEL
+                )
+                refresh_button = gr.Button("Refresh Models")
+                refresh_button.click(fn=refresh_models, inputs=model, outputs=model)
                 style = gr.Dropdown(label="Style template", choices=STYLE_NAMES, value=DEFAULT_STYLE_NAME)
 
-                # strength
                 identitynet_strength_ratio = gr.Slider(
                     label="IdentityNet strength (for fidelity)",
                     minimum=0,
@@ -538,11 +588,10 @@ if __name__ == "__main__":
 
     logging.basicConfig(
         format='%(asctime)s : %(levelname)s : %(message)s',
-        level=logging.INFO
+        level=LOG_LEVEL
     )
 
     logging.getLogger('httpx').setLevel(logging.WARNING)
-    logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
     launch_kwargs = {}
     launch_kwargs["server_name"] = args.listen
