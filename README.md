@@ -19,20 +19,6 @@
 
 </div>
 
-
-
-
-<!-- # <center> InstantID
-
-<a href='https://instantid.github.io/'><img src='https://img.shields.io/badge/Project-Page-green'></a>
-<a href='https://arxiv.org/abs/2401.07519'><img src='https://img.shields.io/badge/Technique-Report-red'></a>
-<a href='https://huggingface.co/papers/2401.07519'><img src='https://img.shields.io/static/v1?label=Paper&message=Huggingface&color=orange'></a> 
-<a href='https://huggingface.co/spaces/InstantX/InstantID'><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue'></a> -->
-<!-- 
-**InstantID : Zero-shot Identity-Preserving Generation in Seconds**
-
-[Qixun Wang](https://github.com/wangqixun), [Xu Bai](https://huggingface.co/baymin0220), [Haofan Wang*](https://haofanwang.github.io/), [Zekui Qin](https://github.com/ZekuiQin), [Anthony Chen](https://antonioo-c.github.io/), Huaxia Li and Xu Tang. * denotes Corresponding Author. -->
-
 InstantID is a new state-of-the-art tuning-free method to achieve ID-Preserving generation with only single image, supporting various downstream tasks.
 
 <img src='assets/applications.png'>
@@ -44,9 +30,6 @@ InstantID is a new state-of-the-art tuning-free method to achieve ID-Preserving 
 - [2023/12/11] 🔥 We launch the [project page](https://instantid.github.io/).
 
 ## Demos
-<a href='https://huggingface.co/spaces/InstantX/InstantID'><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue'></a> 
-[![Replicate](https://replicate.com/zsxkib/instant-id/badge)](https://replicate.com/zsxkib/instant-id)
-[![ModelScope](https://img.shields.io/badge/modelscope-InstantID-blue)](https://modelscope.cn/studios/instantx/InstantID/summary)
 
 ### Stylized Synthesis
 
