@@ -231,7 +231,7 @@ python gradio_demo/app.py
 The code of InstantID is released under [Apache License](https://github.com/InstantID/InstantID?tab=Apache-2.0-1-ov-file#readme) for both academic and commercial usage. **However, both manual-downloading and auto-downloading face models from insightface are for non-commercial research purposes only** accoreding to their [license](https://github.com/deepinsight/insightface?tab=readme-ov-file#license). Users are granted the freedom to create images using this tool, but they are obligated to comply with local laws and utilize it responsibly. The developers will not assume any responsibility for potential misuse by users.
 
 ## Declaration
-❌❌❌ We solemnly clarify that [FAKE]http://instantid.org[FAKE] is not authorized and has no relationship with us. It is infringing and quite misleading, and has never contacted us for official cooperation. Please be aware of your personal privacy and subscription fraud. We reserve all legal rights.
+❌❌❌ We solemnly clarify that [FAKE] http://instantid.org [FAKE] is not authorized and has no relationship with us. It is infringing and quite misleading, and has never contacted us for official cooperation. Please be aware of your personal privacy and subscription fraud. We reserve all legal rights.
 
 ## Star History
 
