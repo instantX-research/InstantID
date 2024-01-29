@@ -7,6 +7,8 @@
 
 <sup>*</sup>corresponding authors
 
+{wanghaofan.ai, wangqixun.ai}@gmail.com
+
 <a href='https://instantid.github.io/'><img src='https://img.shields.io/badge/Project-Page-green'></a>
 <a href='https://arxiv.org/abs/2401.07519'><img src='https://img.shields.io/badge/Technique-Report-red'></a>
 <a href='https://huggingface.co/papers/2401.07519'><img src='https://img.shields.io/static/v1?label=Paper&message=Huggingface&color=orange'></a> 
