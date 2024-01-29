@@ -41,7 +41,8 @@ else:
 
 STYLE_NAMES = list(styles.keys())
 DEFAULT_STYLE_NAME = "Watercolor"
-MODEL_PATH = "wangqixun/YamerMIX_v8"
+DEFAULT_MODEL = "wangqixun/YamerMIX_v8"
+MODEL_DIRECTORY = "./models"
 
 # Download checkpoints
 hf_hub_download(repo_id="InstantX/InstantID", filename="ControlNetModel/config.json", local_dir="./checkpoints")
@@ -243,6 +244,7 @@ def generate_image(
     pose_image,
     prompt,
     negative_prompt,
+    model_path,
     style_name,
     num_steps,
     identitynet_strength_ratio,
@@ -251,8 +253,6 @@ def generate_image(
     seed,
     progress=gr.Progress(track_tqdm=True)
         ):
-
-    global MODEL_PATH
 
     if face_image is None:
         raise gr.Error(f"Cannot find any input face image! Please upload the face image")
@@ -296,12 +296,11 @@ def generate_image(
     generator = torch.Generator(device=device).manual_seed(seed)
 
     logging.info("Start inference...")
-    logging.debug(f"Model Path: {MODEL_PATH}")
+    logging.debug(f"Model Path: {model_path}")
     logging.debug(f"Prompt: {prompt}")
     logging.debug(f"Negative Prompt: {negative_prompt}")
-    logging.info(f"Loading Pipeline for: {MODEL_PATH}")
 
-    pipe = get_pipeline(MODEL_PATH)
+    pipe = get_pipeline(model_path)
     pipe.set_ip_adapter_scale(adapter_strength_ratio)
     images = pipe(
         prompt=prompt,
@@ -324,7 +323,20 @@ def clear_cuda_cache():
         torch.cuda.empty_cache()
 
 
-def ui(launch_kwargs):
+def get_available_models():
+    files = []
+    extensions = ['.safetensors', '.ckpt']
+
+    for file in os.listdir(MODEL_DIRECTORY):
+        if any(file.endswith(ext) for ext in extensions):
+            files.append(os.path.join(MODEL_DIRECTORY, file))
+
+    return files
+
+
+def launch_ui(launch_kwargs):
+    global DEFAULT_MODEL
+
     title = r"""
     <h1 align="center">InstantID: Zero-shot Identity-Preserving Generation in Seconds</h1>
     """
@@ -369,9 +381,16 @@ def ui(launch_kwargs):
     css = '''
     .gradio-container {width: 85% !important}
     '''
-    with gr.Blocks(css=css) as demo:
+    interface = gr.Blocks(
+        css=css,
+        title="InstantID: Zero-shot Identity-Preserving Generation in Seconds",
+        theme=gr.themes.Default()
+    )
 
-        # description
+    available_models = get_available_models()
+    model_choices = [DEFAULT_MODEL] + available_models
+
+    with interface:
         gr.Markdown(title)
         gr.Markdown(description)
 
@@ -404,6 +423,7 @@ def ui(launch_kwargs):
 
                 submit = gr.Button("Submit", variant="primary")
 
+                model = gr.Dropdown(label="Model path", choices=model_choices, value=DEFAULT_MODEL)
                 style = gr.Dropdown(label="Style template", choices=STYLE_NAMES, value=DEFAULT_STYLE_NAME)
 
                 # strength
@@ -477,6 +497,7 @@ def ui(launch_kwargs):
                     pose_files,
                     prompt,
                     negative_prompt,
+                    model,
                     style,
                     num_steps,
                     identitynet_strength_ratio,
@@ -499,7 +520,7 @@ def ui(launch_kwargs):
 
         gr.Markdown(article)
 
-    demo.launch(**launch_kwargs)
+    interface.launch(**launch_kwargs)
 
 
 if __name__ == "__main__":
@@ -508,19 +529,25 @@ if __name__ == "__main__":
     parser.add_argument("--listen", type=str, default="0.0.0.0" if "SPACE_ID" in os.environ else "127.0.0.1", help="IP to listen on for connections to Gradio")
     parser.add_argument("--server_port", type=int, default=7860, help="Server port")
     parser.add_argument("--share", action="store_true", help="Share the Gradio UI")
-    parser.add_argument("--model_path", type=str, default="wangqixun/YamerMIX_v8")
+    parser.add_argument("--model_path", type=str, default=DEFAULT_MODEL)
     parser.add_argument("--medvram", action="store_true", help="Medium VRAM settings")
     parser.add_argument("--lowvram", action="store_true", help="Low VRAM settings")
     parser.add_argument("--username", type=str, default="", help="Username for authentication")
     parser.add_argument("--password", type=str, default="", help="Password for authentication")
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, stream=sys.stderr)
+    logging.basicConfig(
+        format='%(asctime)s : %(levelname)s : %(message)s',
+        level=logging.INFO
+    )
+
+    logging.getLogger('httpx').setLevel(logging.WARNING)
+    logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
     launch_kwargs = {}
     launch_kwargs["server_name"] = args.listen
 
-    if args.model_path != MODEL_PATH:
+    if args.model_path != DEFAULT_MODEL:
         MODEL_PATH = args.model_path
     if args.username and args.password:
         launch_kwargs["auth"] = (args.username, args.password)
@@ -531,4 +558,4 @@ if __name__ == "__main__":
     if args.share:
         launch_kwargs["share"] = args.share
 
-    ui(launch_kwargs)
+    launch_ui(launch_kwargs)
