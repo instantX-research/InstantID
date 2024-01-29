@@ -1,5 +1,5 @@
 <div align="center">
-<h2>InstantID</h2>
+<h2>InstantID: Zero-shot Identity-Preserving Generation in Seconds</h2>
 
 [**Qixun Wang**](https://github.com/wangqixun)<sup>12</sup> · [**Xu Bai**](https://huggingface.co/baymin0220)<sup>12</sup> · [**Haofan Wang**](https://haofanwang.github.io/)<sup>12*</sup> · [**Zekui Qin**](https://github.com/ZekuiQin)<sup>12</sup> · [**Anthony Chen**](https://antonioo-c.github.io/)<sup>123</sup> · Huaxia Li<sup>2</sup> · Xu Tang<sup>2</sup>
 
@@ -13,8 +13,9 @@
 <a href='https://huggingface.co/spaces/InstantX/InstantID'><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue'></a>
 [![GitHub](https://img.shields.io/github/stars/InstantID/InstantID?style=social)](https://github.com/InstantID/InstantID)
 
-
 </div>
+
+
 
 
 <!-- # <center> InstantID
@@ -23,10 +24,10 @@
 <a href='https://arxiv.org/abs/2401.07519'><img src='https://img.shields.io/badge/Technique-Report-red'></a>
 <a href='https://huggingface.co/papers/2401.07519'><img src='https://img.shields.io/static/v1?label=Paper&message=Huggingface&color=orange'></a> 
 <a href='https://huggingface.co/spaces/InstantX/InstantID'><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue'></a> -->
-
+<!-- 
 **InstantID : Zero-shot Identity-Preserving Generation in Seconds**
 
-[Qixun Wang](https://github.com/wangqixun), [Xu Bai](https://huggingface.co/baymin0220), [Haofan Wang*](https://haofanwang.github.io/), [Zekui Qin](https://github.com/ZekuiQin), [Anthony Chen](https://antonioo-c.github.io/), Huaxia Li and Xu Tang. * denotes Corresponding Author.
+[Qixun Wang](https://github.com/wangqixun), [Xu Bai](https://huggingface.co/baymin0220), [Haofan Wang*](https://haofanwang.github.io/), [Zekui Qin](https://github.com/ZekuiQin), [Anthony Chen](https://antonioo-c.github.io/), Huaxia Li and Xu Tang. * denotes Corresponding Author. -->
 
 InstantID is a new state-of-the-art tuning-free method to achieve ID-Preserving generation with only single image, supporting various downstream tasks.
 
