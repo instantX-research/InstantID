@@ -41,6 +41,7 @@ else:
 
 STYLE_NAMES = list(styles.keys())
 DEFAULT_STYLE_NAME = "Watercolor"
+MODEL_PATH = "wangqixun/YamerMIX_v8"
 
 # Download checkpoints
 hf_hub_download(repo_id="InstantX/InstantID", filename="ControlNetModel/config.json", local_dir="./checkpoints")
@@ -238,7 +239,6 @@ def apply_style(style_name: str, positive: str, negative: str = "") -> tuple[str
 
 
 def generate_image(
-    model_path,
     face_image,
     pose_image,
     prompt,
@@ -251,6 +251,8 @@ def generate_image(
     seed,
     progress=gr.Progress(track_tqdm=True)
         ):
+
+    global MODEL_PATH
 
     if face_image is None:
         raise gr.Error(f"Cannot find any input face image! Please upload the face image")
@@ -294,12 +296,12 @@ def generate_image(
     generator = torch.Generator(device=device).manual_seed(seed)
 
     logging.info("Start inference...")
-    logging.debug(f"Model Path: {model_path}")
+    logging.debug(f"Model Path: {MODEL_PATH}")
     logging.debug(f"Prompt: {prompt}")
     logging.debug(f"Negative Prompt: {negative_prompt}")
-    logging.info(f"Loading Pipeline for: {model_path}")
+    logging.info(f"Loading Pipeline for: {MODEL_PATH}")
 
-    pipe = get_pipeline(model_path)
+    pipe = get_pipeline(MODEL_PATH)
     pipe.set_ip_adapter_scale(adapter_strength_ratio)
     images = pipe(
         prompt=prompt,
@@ -518,6 +520,8 @@ if __name__ == "__main__":
     launch_kwargs = {}
     launch_kwargs["server_name"] = args.listen
 
+    if args.model_path != MODEL_PATH:
+        MODEL_PATH = args.model_path
     if args.username and args.password:
         launch_kwargs["auth"] = (args.username, args.password)
     if args.server_port:
