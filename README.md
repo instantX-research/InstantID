@@ -214,7 +214,6 @@ python gradio_demo/app.py
 - Thanks to the [ModelScope](https://github.com/modelscope/modelscope) team for their free GPU support!
 
 ## Disclaimer
-
 The code of InstantID is released under [Apache License]() for both academic and commercial usage. **However, both manual-downloading and auto-downloading face models from insightface are for non-commercial research purposes only** accoreding to their [license](https://github.com/deepinsight/insightface?tab=readme-ov-file#license). Users are granted the freedom to create images using this tool, but they are obligated to comply with local laws and utilize it responsibly. The developers will not assume any responsibility for potential misuse by users.
 
 ## Declaration
