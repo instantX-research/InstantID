@@ -27,8 +27,17 @@ from model_util import load_models_xl
 
 import gradio as gr
 
-# global variable
+# Global variables
 MAX_SEED = np.iinfo(np.int32).max
+LOG_LEVEL = logging.INFO
+STYLE_NAMES = list(styles.keys())
+DEFAULT_STYLE_NAME = "Watercolor"
+DEFAULT_MODEL = "wangqixun/YamerMIX_v8"
+MODEL_DIRECTORY = "./models"
+MAX_SIDE = 1280
+MIN_SIDE = 1024
+
+# Set device and torch_dtype
 torch_dtype = torch.float16
 
 if torch.backends.mps.is_available():
@@ -38,12 +47,6 @@ elif torch.cuda.is_available():
     device = "cuda"
 else:
     device = "cpu"
-
-LOG_LEVEL = logging.INFO
-STYLE_NAMES = list(styles.keys())
-DEFAULT_STYLE_NAME = "Watercolor"
-DEFAULT_MODEL = "wangqixun/YamerMIX_v8"
-MODEL_DIRECTORY = "./models"
 
 # Download ControlNet checkpoint from Hugging Face Hub
 hf_hub_download(
@@ -233,9 +236,9 @@ def resize_img(input_image, max_side=1280, min_side=1024, size=None,
         w_resize_new, h_resize_new = size
     else:
         ratio = min_side / min(h, w)
-        w, h = round(ratio*w), round(ratio*h)
+        w, h = round(ratio * w), round(ratio * h)
         ratio = max_side / max(h, w)
-        input_image = input_image.resize([round(ratio*w), round(ratio*h)], mode)
+        input_image = input_image.resize([round(ratio * w), round(ratio * h)], mode)
         w_resize_new = (round(ratio * w) // base_pixel_number) * base_pixel_number
         h_resize_new = (round(ratio * h) // base_pixel_number) * base_pixel_number
     input_image = input_image.resize([w_resize_new, h_resize_new], mode)
@@ -254,21 +257,10 @@ def apply_style(style_name: str, positive: str, negative: str = "") -> tuple[str
     return p.replace("{prompt}", positive), n + ' ' + negative
 
 
-def generate_image(
-    face_image,
-    pose_image,
-    prompt,
-    negative_prompt,
-    model_path,
-    style_name,
-    num_steps,
-    identitynet_strength_ratio,
-    adapter_strength_ratio,
-    guidance_scale,
-    seed,
-    progress=gr.Progress(track_tqdm=True)
-        ):
-
+def generate_image(face_image, pose_image, prompt, negative_prompt, model_path, style_name, enhance_face_region,
+                   num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed,
+                   progress=gr.Progress(track_tqdm=True)):
+    global MAX_SIDE, MIN_SIDE
     if face_image is None:
         raise gr.Error(f"Cannot find any input face image! Please upload the face image")
 
@@ -279,7 +271,7 @@ def generate_image(
     prompt, negative_prompt = apply_style(style_name, prompt, negative_prompt)
 
     face_image = load_image(face_image[0])
-    face_image = resize_img(face_image)
+    face_image = resize_img(face_image, MAX_SIDE, MIN_SIDE)
     face_image_cv2 = convert_from_image_to_cv2(face_image)
     height, width, _ = face_image_cv2.shape
 
@@ -289,13 +281,13 @@ def generate_image(
     if len(face_info) == 0:
         raise gr.Error(f"Cannot find any face in the image! Please upload another person image")
 
-    face_info = sorted(face_info, key=lambda x:(x["bbox"][2]-x["bbox"][0])*x["bbox"][3]-x["bbox"][1])[-1]  # only use the maximum face
+    face_info = sorted(face_info, key=lambda x: (x["bbox"][2]-x["bbox"][0])*x["bbox"][3]-x["bbox"][1])[-1]  # only use the maximum face
     face_emb = face_info["embedding"]
     face_kps = draw_kps(convert_from_cv2_to_image(face_image_cv2), face_info["kps"])
 
     if pose_image is not None:
         pose_image = load_image(pose_image[0])
-        pose_image = resize_img(pose_image)
+        pose_image = resize_img(pose_image, MAX_SIDE, MIN_SIDE)
         pose_image_cv2 = convert_from_image_to_cv2(pose_image)
 
         face_info = app.get(pose_image_cv2)
@@ -307,6 +299,15 @@ def generate_image(
         face_kps = draw_kps(pose_image, face_info['kps'])
 
         width, height = face_kps.size
+
+    if enhance_face_region:
+        control_mask = np.zeros([height, width, 3])
+        x1, y1, x2, y2 = face_info["bbox"]
+        x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+        control_mask[y1:y2, x1:x2] = 255
+        control_mask = Image.fromarray(control_mask.astype(np.uint8))
+    else:
+        control_mask = None
 
     generator = torch.Generator(device=device).manual_seed(seed)
 
@@ -322,6 +323,7 @@ def generate_image(
         negative_prompt=negative_prompt,
         image_embeds=face_emb,
         image=face_kps,
+        control_mask=control_mask,
         controlnet_conditioning_scale=float(identitynet_strength_ratio),
         num_inference_steps=num_steps,
         guidance_scale=guidance_scale,
@@ -520,10 +522,11 @@ def launch_ui(launch_kwargs):
                         value=42,
                     )
                     randomize_seed = gr.Checkbox(label="Randomize seed", value=True)
+                    enhance_face_region = gr.Checkbox(label="Enhance non-face region", value=True)
 
             with gr.Column():
                 gallery = gr.Gallery(label="Generated Images")
-                usage_tips = gr.Markdown(label="Usage tips of InstantID", value=tips ,visible=False)
+                usage_tips = gr.Markdown(label="Usage tips of InstantID", value=tips, visible=False)
 
             face_files.upload(fn=swap_to_gallery, inputs=face_files, outputs=[uploaded_faces, clear_button_face, face_files])
             pose_files.upload(fn=swap_to_gallery, inputs=pose_files, outputs=[uploaded_poses, clear_button_pose, pose_files])
@@ -549,6 +552,7 @@ def launch_ui(launch_kwargs):
                     negative_prompt,
                     model,
                     style,
+                    enhance_face_region,
                     num_steps,
                     identitynet_strength_ratio,
                     adapter_strength_ratio,
@@ -593,11 +597,16 @@ if __name__ == "__main__":
 
     logging.getLogger('httpx').setLevel(logging.WARNING)
 
-    launch_kwargs = {}
-    launch_kwargs["server_name"] = args.listen
+    launch_kwargs = {
+        "server_name": args.listen
+    }
 
     if args.model_path != DEFAULT_MODEL:
         MODEL_PATH = args.model_path
+    if args.medvram:
+        MAX_SIDE, MIN_SIDE = 1024, 832
+    elif args.lowvram:
+        MAX_SIDE, MIN_SIDE = 832, 640
     if args.username and args.password:
         launch_kwargs["auth"] = (args.username, args.password)
     if args.server_port:
@@ -607,4 +616,5 @@ if __name__ == "__main__":
     if args.share:
         launch_kwargs["share"] = args.share
 
+    logging.info(f'MAX_SIDE: {MAX_SIDE}, MIN_SIDE: {MIN_SIDE}')
     launch_ui(launch_kwargs)
