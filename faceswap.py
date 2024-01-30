@@ -146,6 +146,8 @@ if __name__ == '__main__':
     mask, pose_image_preprocessed, control_image = images
 
     prompt = ''
+    # negative_prompt is used only when guidance_scale > 1
+    # https://huggingface.co/docs/diffusers/api/pipelines/controlnet_sdxl
     negative_prompt = '(lowres, low quality, worst quality:1.2), (text:1.2), watermark, painting, drawing, illustration, glitch, deformed, mutated, cross-eyed, ugly, disfigured (lowres, low quality, worst quality:1.2), (text:1.2), watermark, painting, drawing, illustration, glitch,deformed, mutated, cross-eyed, ugly, disfigured'
 
     image = pipe(
@@ -158,7 +160,7 @@ if __name__ == '__main__':
         controlnet_conditioning_scale=0.6,
         ip_adapter_scale=0.3, # keep it low
         num_inference_steps=11,
-        guidance_scale=0.6
+        guidance_scale=0.0
     ).images[0]
 
     # processed face with padding
