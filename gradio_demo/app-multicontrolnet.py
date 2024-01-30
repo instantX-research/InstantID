@@ -1,5 +1,6 @@
 import sys
-sys.path.append('./')
+
+sys.path.append("./")
 
 import os
 import cv2
@@ -16,7 +17,7 @@ import diffusers
 from diffusers.utils import load_image
 from diffusers.models import ControlNetModel
 from diffusers import LCMScheduler
-from controlnet_aux import OpenposeDetector
+from diffusers.pipelines.controlnet.multicontrolnet import MultiControlNetModel
 
 from huggingface_hub import hf_hub_download
 
@@ -26,8 +27,10 @@ from insightface.app import FaceAnalysis
 from style_template import styles
 from pipeline_stable_diffusion_xl_instantid import StableDiffusionXLInstantIDPipeline
 from model_util import load_models_xl, get_torch_device, torch_gc
+from controlnet_util import openpose, get_depth_map, get_canny_image
 
 import gradio as gr
+
 
 # global variable
 MAX_SEED = np.iinfo(np.int32).max
@@ -37,61 +40,86 @@ STYLE_NAMES = list(styles.keys())
 DEFAULT_STYLE_NAME = "Watercolor"
 
 # Load face encoder
-app = FaceAnalysis(name='antelopev2', root='./', providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+app = FaceAnalysis(
+    name="antelopev2",
+    root="./",
+    providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+)
 app.prepare(ctx_id=0, det_size=(640, 640))
 
 # Path to InstantID models
-face_adapter = f'./checkpoints/ip-adapter.bin'
-controlnet_path = f'./checkpoints/ControlNetModel'
+face_adapter = f"./checkpoints/ip-adapter.bin"
+controlnet_path = f"./checkpoints/ControlNetModel"
 
 # Load pipeline face ControlNetModel
-controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=dtype)
+controlnet_identitynet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=dtype)
 
 # controlnet-pose
 controlnet_pose_model = "thibaud/controlnet-openpose-sdxl-1.0"
-controlnet_pose = ControlNetModel.from_pretrained(controlnet_pose_model, torch_dtype=dtype)
-openpose = OpenposeDetector.from_pretrained("lllyasviel/ControlNet")
+controlnet_canny_model = "diffusers/controlnet-canny-sdxl-1.0"
+controlnet_depth_model = "diffusers/controlnet-depth-sdxl-1.0-small"
 
+controlnet_pose = ControlNetModel.from_pretrained(
+    controlnet_pose_model, torch_dtype=dtype
+).to(device)
+controlnet_canny = ControlNetModel.from_pretrained(
+    controlnet_canny_model, torch_dtype=dtype
+).to(device)
+controlnet_depth = ControlNetModel.from_pretrained(
+    controlnet_depth_model, torch_dtype=dtype
+).to(device)
 
-def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_LCM=False):
+controlnet_map = {
+    "pose": controlnet_pose,
+    "canny": controlnet_canny,
+    "depth": controlnet_depth,
+}
+controlnet_map_fn = {
+    "pose": openpose,
+    "canny": get_canny_image,
+    "depth": get_depth_map,
+}
 
+def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=False):
     if pretrained_model_name_or_path.endswith(
-            ".ckpt"
-        ) or pretrained_model_name_or_path.endswith(".safetensors"):
-            scheduler_kwargs = hf_hub_download(
-                repo_id="wangqixun/YamerMIX_v8",
-                subfolder="scheduler",
-                filename="scheduler_config.json",
-            )
+        ".ckpt"
+    ) or pretrained_model_name_or_path.endswith(".safetensors"):
+        scheduler_kwargs = hf_hub_download(
+            repo_id="wangqixun/YamerMIX_v8",
+            subfolder="scheduler",
+            filename="scheduler_config.json",
+        )
 
-            (tokenizers, text_encoders, unet, _, vae) = load_models_xl(
-                pretrained_model_name_or_path=pretrained_model_name_or_path,
-                scheduler_name=None,
-                weight_dtype=dtype,
-            )
+        (tokenizers, text_encoders, unet, _, vae) = load_models_xl(
+            pretrained_model_name_or_path=pretrained_model_name_or_path,
+            scheduler_name=None,
+            weight_dtype=dtype,
+        )
 
-            scheduler = diffusers.EulerDiscreteScheduler.from_config(scheduler_kwargs)
-            pipe = StableDiffusionXLInstantIDPipeline(
-                vae=vae,
-                text_encoder=text_encoders[0],
-                text_encoder_2=text_encoders[1],
-                tokenizer=tokenizers[0],
-                tokenizer_2=tokenizers[1],
-                unet=unet,
-                scheduler=scheduler,
-                controlnet=[controlnet, controlnet_pose],
-            ).to(device)
+        scheduler = diffusers.EulerDiscreteScheduler.from_config(scheduler_kwargs)
+        pipe = StableDiffusionXLInstantIDPipeline(
+            vae=vae,
+            text_encoder=text_encoders[0],
+            text_encoder_2=text_encoders[1],
+            tokenizer=tokenizers[0],
+            tokenizer_2=tokenizers[1],
+            unet=unet,
+            scheduler=scheduler,
+            controlnet=[controlnet_identitynet],
+        ).to(device)
 
     else:
         pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
             pretrained_model_name_or_path,
-            controlnet=[controlnet, controlnet_pose],
+            controlnet=[controlnet_identitynet],
             torch_dtype=dtype,
             safety_checker=None,
             feature_extractor=None,
         ).to(device)
 
-        pipe.scheduler = diffusers.EulerDiscreteScheduler.from_config(pipe.scheduler.config)
+        pipe.scheduler = diffusers.EulerDiscreteScheduler.from_config(
+            pipe.scheduler.config
+        )
 
     pipe.load_ip_adapter_instantid(face_adapter)
     # load and disable LCM
@@ -102,55 +130,55 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_LCM=False
         if value:
             return (
                 gr.update(minimum=0, maximum=100, step=1, value=5),
-                gr.update(minimum=0.1, maximum=20.0, step=0.1, value=1.5)
+                gr.update(minimum=0.1, maximum=20.0, step=0.1, value=1.5),
             )
         else:
             return (
                 gr.update(minimum=5, maximum=100, step=1, value=30),
-                gr.update(minimum=0.1, maximum=20.0, step=0.1, value=5)
+                gr.update(minimum=0.1, maximum=20.0, step=0.1, value=5),
             )
-    
+
     def randomize_seed_fn(seed: int, randomize_seed: bool) -> int:
         if randomize_seed:
             seed = random.randint(0, MAX_SEED)
         return seed
-    
+
     def remove_tips():
         return gr.update(visible=False)
 
     def get_example():
         case = [
             [
-                './examples/yann-lecun_resize.jpg',
+                "./examples/yann-lecun_resize.jpg",
                 None,
                 "a man",
                 "Snow",
                 "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, green",
             ],
             [
-                './examples/musk_resize.jpeg',
-                './examples/poses/pose2.jpg',
+                "./examples/musk_resize.jpeg",
+                "./examples/poses/pose2.jpg",
                 "a man flying in the sky in Mars",
                 "Mars",
                 "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, green",
             ],
             [
-                './examples/sam_resize.png',
-                './examples/poses/pose4.jpg',
+                "./examples/sam_resize.png",
+                "./examples/poses/pose4.jpg",
                 "a man doing a silly pose",
                 "Jungle",
                 "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, gree",
             ],
             [
-                './examples/schmidhuber_resize.png',
-                './examples/poses/pose3.jpg',
+                "./examples/schmidhuber_resize.png",
+                "./examples/poses/pose3.jpg",
                 "a man sit on a chair",
                 "Neon",
                 "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, green",
             ],
             [
-                './examples/kaifu_resize.png',
-                './examples/poses/pose.jpg',
+                "./examples/kaifu_resize.png",
+                "./examples/poses/pose.jpg",
                 "a man",
                 "Vibrant Color",
                 "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, green",
@@ -158,8 +186,24 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_LCM=False
         ]
         return case
 
-    def run_for_examples(face_file, pose_file, prompt, style, negative_prompt):
-        return generate_image(face_file, pose_file, prompt, negative_prompt, style, 30, 0.8, 0.8, 0.8, 5.0, 42, False, True)
+    def run_for_examples(face_file, pose_file, prompt, style, negative_prompt):                
+        return generate_image(
+            face_file,
+            pose_file,
+            prompt,
+            negative_prompt,
+            style,
+            30, # num_steps
+            0.9, # identitynet_strength_ratio
+            0.9, # adapter_strength_ratio
+            0.5, # pose_strength
+            0.4, # canny_strength
+            0.5, # depth_strength
+            ["pose", "canny"], # controlnet_selection
+            5.0, # guidance_scale  
+            42, # seed
+            False, # enable_LCM
+        )
 
     def convert_from_cv2_to_image(img: np.ndarray) -> Image:
         return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
@@ -167,7 +211,17 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_LCM=False
     def convert_from_image_to_cv2(img: Image) -> np.ndarray:
         return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
-    def draw_kps(image_pil, kps, color_list=[(255,0,0), (0,255,0), (0,0,255), (255,255,0), (255,0,255)]):
+    def draw_kps(
+        image_pil,
+        kps,
+        color_list=[
+            (255, 0, 0),
+            (0, 255, 0),
+            (0, 0, 255),
+            (255, 255, 0),
+            (255, 0, 255),
+        ],
+    ):
         stickwidth = 4
         limbSeq = np.array([[0, 2], [1, 2], [3, 2], [4, 2]])
         kps = np.array(kps)
@@ -183,7 +237,14 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_LCM=False
             y = kps[index][:, 1]
             length = ((x[0] - x[1]) ** 2 + (y[0] - y[1]) ** 2) ** 0.5
             angle = math.degrees(math.atan2(y[0] - y[1], x[0] - x[1]))
-            polygon = cv2.ellipse2Poly((int(np.mean(x)), int(np.mean(y))), (int(length / 2), stickwidth), int(angle), 0, 360, 1)
+            polygon = cv2.ellipse2Poly(
+                (int(np.mean(x)), int(np.mean(y))),
+                (int(length / 2), stickwidth),
+                int(angle),
+                0,
+                360,
+                1,
+            )
             out_img = cv2.fillConvexPoly(out_img.copy(), polygon, color)
         out_img = (out_img * 0.6).astype(np.uint8)
 
@@ -195,32 +256,42 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_LCM=False
         out_img_pil = Image.fromarray(out_img.astype(np.uint8))
         return out_img_pil
 
-    def resize_img(input_image, max_side=1280, min_side=1024, size=None, 
-                pad_to_max_side=False, mode=PIL.Image.BILINEAR, base_pixel_number=64):
+    def resize_img(
+        input_image,
+        max_side=1280,
+        min_side=1024,
+        size=None,
+        pad_to_max_side=False,
+        mode=PIL.Image.BILINEAR,
+        base_pixel_number=64,
+    ):
+        w, h = input_image.size
+        if size is not None:
+            w_resize_new, h_resize_new = size
+        else:
+            ratio = min_side / min(h, w)
+            w, h = round(ratio * w), round(ratio * h)
+            ratio = max_side / max(h, w)
+            input_image = input_image.resize([round(ratio * w), round(ratio * h)], mode)
+            w_resize_new = (round(ratio * w) // base_pixel_number) * base_pixel_number
+            h_resize_new = (round(ratio * h) // base_pixel_number) * base_pixel_number
+        input_image = input_image.resize([w_resize_new, h_resize_new], mode)
 
-            w, h = input_image.size
-            if size is not None:
-                w_resize_new, h_resize_new = size
-            else:
-                ratio = min_side / min(h, w)
-                w, h = round(ratio*w), round(ratio*h)
-                ratio = max_side / max(h, w)
-                input_image = input_image.resize([round(ratio*w), round(ratio*h)], mode)
-                w_resize_new = (round(ratio * w) // base_pixel_number) * base_pixel_number
-                h_resize_new = (round(ratio * h) // base_pixel_number) * base_pixel_number
-            input_image = input_image.resize([w_resize_new, h_resize_new], mode)
+        if pad_to_max_side:
+            res = np.ones([max_side, max_side, 3], dtype=np.uint8) * 255
+            offset_x = (max_side - w_resize_new) // 2
+            offset_y = (max_side - h_resize_new) // 2
+            res[
+                offset_y : offset_y + h_resize_new, offset_x : offset_x + w_resize_new
+            ] = np.array(input_image)
+            input_image = Image.fromarray(res)
+        return input_image
 
-            if pad_to_max_side:
-                res = np.ones([max_side, max_side, 3], dtype=np.uint8) * 255
-                offset_x = (max_side - w_resize_new) // 2
-                offset_y = (max_side - h_resize_new) // 2
-                res[offset_y:offset_y+h_resize_new, offset_x:offset_x+w_resize_new] = np.array(input_image)
-                input_image = Image.fromarray(res)
-            return input_image
-
-    def apply_style(style_name: str, positive: str, negative: str = "") -> tuple[str, str]:
+    def apply_style(
+        style_name: str, positive: str, negative: str = ""
+    ) -> tuple[str, str]:
         p, n = styles.get(style_name, styles[DEFAULT_STYLE_NAME])
-        return p.replace("{prompt}", positive), n + ' ' + negative
+        return p.replace("{prompt}", positive), n + " " + negative
 
     def generate_image(
         face_image_path,
@@ -231,11 +302,13 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_LCM=False
         num_steps,
         identitynet_strength_ratio,
         adapter_strength_ratio,
-        control_net_pose_strength,
+        pose_strength,
+        canny_strength,
+        depth_strength,
+        controlnet_selection,
         guidance_scale,
         seed,
         enable_LCM,
-        enhance_face_region,
         progress=gr.Progress(track_tqdm=True),
     ):
         if enable_LCM:
@@ -243,96 +316,97 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_LCM=False
             pipe.enable_lora()
         else:
             pipe.disable_lora()
-            pipe.scheduler = diffusers.EulerDiscreteScheduler.from_config(pipe.scheduler.config)
-    
+            pipe.scheduler = diffusers.EulerDiscreteScheduler.from_config(
+                pipe.scheduler.config
+            )
+
         if face_image_path is None:
-            raise gr.Error(f"Cannot find any input face image! Please upload the face image")
-        
+            raise gr.Error(
+                f"Cannot find any input face image! Please upload the face image"
+            )
+
         if prompt is None:
             prompt = "a person"
-        
+
         # apply the style template
         prompt, negative_prompt = apply_style(style_name, prompt, negative_prompt)
-        
+
         face_image = load_image(face_image_path)
-        face_image = resize_img(face_image)
+        face_image = resize_img(face_image, max_side=1024)
         face_image_cv2 = convert_from_image_to_cv2(face_image)
         height, width, _ = face_image_cv2.shape
-        
+
         # Extract face features
         face_info = app.get(face_image_cv2)
-        
+
         if len(face_info) == 0:
-            raise gr.Error(f"Cannot find any face in the image! Please upload another person image")
-        
-        face_info = sorted(face_info, key=lambda x:(x['bbox'][2]-x['bbox'][0])*x['bbox'][3]-x['bbox'][1])[-1]  # only use the maximum face
-        face_emb = face_info['embedding']
-        face_kps = draw_kps(convert_from_cv2_to_image(face_image_cv2), face_info['kps'])
-        openpose_image = openpose(face_image).resize([width, height])
+            raise gr.Error(
+                f"Cannot find any face in the image! Please upload another person image"
+            )
+
+        face_info = sorted(
+            face_info,
+            key=lambda x: (x["bbox"][2] - x["bbox"][0]) * x["bbox"][3] - x["bbox"][1],
+        )[
+            -1
+        ]  # only use the maximum face
+        face_emb = face_info["embedding"]
+        face_kps = draw_kps(convert_from_cv2_to_image(face_image_cv2), face_info["kps"])
+        img_controlnet = face_image
         if pose_image_path is not None:
             pose_image = load_image(pose_image_path)
-            pose_image = resize_img(pose_image)
+            pose_image = resize_img(pose_image, max_side=1024)
+            img_controlnet = pose_image
             pose_image_cv2 = convert_from_image_to_cv2(pose_image)
-            
+
             face_info = app.get(pose_image_cv2)
-            
+
             if len(face_info) == 0:
-                raise gr.Error(f"Cannot find any face in the reference image! Please upload another person image")
-            
+                raise gr.Error(
+                    f"Cannot find any face in the reference image! Please upload another person image"
+                )
+
             face_info = face_info[-1]
-            face_kps = draw_kps(pose_image, face_info['kps'])
-            
+            face_kps = draw_kps(pose_image, face_info["kps"])
+
             width, height = face_kps.size
-            openpose_image = openpose(pose_image).resize([width, height])
 
-        if enhance_face_region:
-            pose_np_img = np.array(openpose_image)
-            pose_np_img = cv2.cvtColor(pose_np_img, cv2.COLOR_RGB2GRAY)
-            _, pose_np_img = cv2.threshold(pose_np_img, 0, 255, cv2.THRESH_BINARY)
-            contours, _ = cv2.findContours(
-                pose_np_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE
-            )
-            if len(contours) > 0:
-                cnt = max(contours, key=cv2.contourArea)
-                x, y, w, h = cv2.boundingRect(cnt)
-
-            width, height = openpose_image.size
-
-            control_mask = np.zeros([height, width, 3])
-            # x1, y1, x2, y2 = face_info["bbox"]
-            # x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
-            x1, y1, x2, y2 = x, y, x + w, y + h
-            control_mask[y1:y2, x1:x2] = 255
-            control_mask = Image.fromarray(control_mask.astype(np.uint8))
+        if len(controlnet_selection) > 0:
+            controlnet_scales = {
+                "pose": pose_strength,
+                "canny": canny_strength,
+                "depth": depth_strength,
+            }
+            pipe.controlnet = MultiControlNetModel([controlnet_identitynet] + [controlnet_map[s] for s in controlnet_selection])
+            control_scales=[float(identitynet_strength_ratio)] + [controlnet_scales[s] for s in controlnet_selection]
+            control_images= [face_kps] +  [controlnet_map_fn[s](img_controlnet).resize((width, height)) for s in controlnet_selection]
         else:
-            control_mask = None
+            pipe.controlnet = controlnet_identitynet
+            control_scales=float(identitynet_strength_ratio)
+            control_images=face_kps   
 
         generator = torch.Generator(device=device).manual_seed(seed)
-        
+
         print("Start inference...")
         print(f"[Debug] Prompt: {prompt}, \n[Debug] Neg Prompt: {negative_prompt}")
-        
+
         pipe.set_ip_adapter_scale(adapter_strength_ratio)
         images = pipe(
             prompt=prompt,
             negative_prompt=negative_prompt,
             image_embeds=face_emb,
-            image=[face_kps, openpose_image],
-            controlnet_conditioning_scale=[
-                float(identitynet_strength_ratio),
-                float(control_net_pose_strength),
-            ],
-            control_mask=control_mask,
+            image=control_images,
+            controlnet_conditioning_scale=control_scales,
             num_inference_steps=num_steps,
             guidance_scale=guidance_scale,
             height=height,
             width=width,
-            generator=generator
+            generator=generator,
         ).images
 
         return images[0], gr.update(visible=True)
 
-    ### Description
+    # Description
     title = r"""
     <h1 align="center">InstantID: Zero-shot Identity-Preserving Generation in Seconds</h1>
     """
@@ -374,11 +448,10 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_LCM=False
     4. If you find that realistic style is not good enough, go for our Github repo and use a more realistic base model.
     """
 
-    css = '''
+    css = """
     .gradio-container {width: 85% !important}
-    '''
+    """
     with gr.Blocks(css=css) as demo:
-
         # description
         gr.Markdown(title)
         gr.Markdown(description)
@@ -387,21 +460,34 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_LCM=False
             with gr.Column():
                 with gr.Row(equal_height=True):
                     # upload face image
-                    face_file = gr.Image(label="Upload a photo of your face", type="filepath")
+                    face_file = gr.Image(
+                        label="Upload a photo of your face", type="filepath"
+                    )
                     # optional: upload a reference pose image
-                    pose_file = gr.Image(label="Upload a reference pose image (optional)", type="filepath")
-            
-                # prompt
-                prompt = gr.Textbox(label="Prompt",
-                        info="Give simple prompt is enough to achieve good face fidelity",
-                        placeholder="A photo of a person",
-                        value="")
-                
-                submit = gr.Button("Submit", variant="primary")
-                enable_LCM = gr.Checkbox(label="Enable Fast Inference with LCM", value=enable_LCM)
+                    pose_file = gr.Image(
+                        label="Upload a reference pose image (optional)",
+                        type="filepath",
+                    )
 
-                style = gr.Dropdown(label="Style template", choices=STYLE_NAMES, value=DEFAULT_STYLE_NAME)
-                
+                # prompt
+                prompt = gr.Textbox(
+                    label="Prompt",
+                    info="Give simple prompt is enough to achieve good face fidelity",
+                    placeholder="A photo of a person",
+                    value="",
+                )
+
+                submit = gr.Button("Submit", variant="primary")
+                enable_LCM = gr.Checkbox(
+                    label="Enable Fast Inference with LCM", value=enable_lcm_arg
+                )
+
+                style = gr.Dropdown(
+                    label="Style template",
+                    choices=STYLE_NAMES,
+                    value=DEFAULT_STYLE_NAME,
+                )
+
                 # strength
                 identitynet_strength_ratio = gr.Slider(
                     label="IdentityNet strength (for fidelity)",
@@ -417,32 +503,50 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_LCM=False
                     step=0.05,
                     value=0.80,
                 )
-                control_net_pose_strength = gr.Slider(
-                    label="Pose Controlnet strength",
-                    minimum=0,
-                    maximum=1.5,
-                    step=0.05,
-                    value=0.80,
-                )
+                with gr.Accordion("Controlnet"):
+                    controlnet_selection = gr.CheckboxGroup(
+                        ["pose", "canny", "depth"], label="Controlnet", value=["pose"]
+                    )
+                    pose_strength = gr.Slider(
+                        label="Pose strength",
+                        minimum=0,
+                        maximum=1.5,
+                        step=0.05,
+                        value=0.40,
+                    )
+                    canny_strength = gr.Slider(
+                        label="Canny strength",
+                        minimum=0,
+                        maximum=1.5,
+                        step=0.05,
+                        value=0.40,
+                    )
+                    depth_strength = gr.Slider(
+                        label="Depth strength",
+                        minimum=0,
+                        maximum=1.5,
+                        step=0.05,
+                        value=0.40,
+                    )
                 with gr.Accordion(open=False, label="Advanced Options"):
                     negative_prompt = gr.Textbox(
-                        label="Negative Prompt", 
+                        label="Negative Prompt",
                         placeholder="low quality",
                         value="(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, green",
                     )
-                    num_steps = gr.Slider( 
+                    num_steps = gr.Slider(
                         label="Number of sample steps",
                         minimum=1,
                         maximum=100,
                         step=1,
-                        value=5 if enable_LCM else 30,
+                        value=5 if enable_lcm_arg else 30,
                     )
                     guidance_scale = gr.Slider(
                         label="Guidance scale",
                         minimum=0.1,
                         maximum=20.0,
                         step=0.1,
-                        value=0.0 if enable_LCM else 5.0,
+                        value=0.0 if enable_lcm_arg else 5.0,
                     )
                     seed = gr.Slider(
                         label="Seed",
@@ -452,15 +556,16 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_LCM=False
                         value=42,
                     )
                     randomize_seed = gr.Checkbox(label="Randomize seed", value=True)
-                    enhance_face_region = gr.Checkbox(label="Enhance non-face region", value=True)
 
             with gr.Column(scale=1):
                 gallery = gr.Image(label="Generated Images")
-                usage_tips = gr.Markdown(label="Usage tips of InstantID", value=tips ,visible=False)
+                usage_tips = gr.Markdown(
+                    label="Usage tips of InstantID", value=tips, visible=False
+                )
 
             submit.click(
                 fn=remove_tips,
-                outputs=usage_tips,            
+                outputs=usage_tips,
             ).then(
                 fn=randomize_seed_fn,
                 inputs=[seed, randomize_seed],
@@ -469,11 +574,32 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_LCM=False
                 api_name=False,
             ).then(
                 fn=generate_image,
-                inputs=[face_file, pose_file, prompt, negative_prompt, style, num_steps, identitynet_strength_ratio, adapter_strength_ratio, control_net_pose_strength, guidance_scale, seed, enable_LCM, enhance_face_region],
-                outputs=[gallery, usage_tips]
+                inputs=[
+                    face_file,
+                    pose_file,
+                    prompt,
+                    negative_prompt,
+                    style,
+                    num_steps,
+                    identitynet_strength_ratio,
+                    adapter_strength_ratio,
+                    pose_strength,
+                    canny_strength,
+                    depth_strength,
+                    controlnet_selection,
+                    guidance_scale,
+                    seed,
+                    enable_LCM,
+                ],
+                outputs=[gallery, usage_tips],
             )
-        
-            enable_LCM.input(fn=toggle_lcm_ui, inputs=[enable_LCM], outputs=[num_steps, guidance_scale], queue=False)
+
+            enable_LCM.input(
+                fn=toggle_lcm_ui,
+                inputs=[enable_LCM],
+                outputs=[num_steps, guidance_scale],
+                queue=False,
+            )
 
         gr.Examples(
             examples=get_example(),
@@ -482,15 +608,20 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_LCM=False
             outputs=[gallery, usage_tips],
             cache_examples=True,
         )
-        
+
         gr.Markdown(article)
 
     demo.launch()
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pretrained_model_name_or_path", type=str, default="wangqixun/YamerMIX_v8")
-    parser.add_argument("--enable_LCM", type=bool, default=os.environ.get("ENABLE_LCM", False))
+    parser.add_argument(
+        "--pretrained_model_name_or_path", type=str, default="wangqixun/YamerMIX_v8"
+    )
+    parser.add_argument(
+        "--enable_LCM", type=bool, default=os.environ.get("ENABLE_LCM", False)
+    )
     args = parser.parse_args()
 
     main(args.pretrained_model_name_or_path, args.enable_LCM)
