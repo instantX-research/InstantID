@@ -2,6 +2,7 @@ import sys
 sys.path.append('./')
 
 import os
+import logging
 import cv2
 import math
 import torch
@@ -27,6 +28,11 @@ from model_util import load_models_xl, get_torch_device, torch_gc
 
 import gradio as gr
 
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 # global variable
 MAX_SEED = np.iinfo(np.int32).max
 device = get_torch_device()
@@ -45,7 +51,7 @@ controlnet_path = f'./checkpoints/ControlNetModel'
 # Load pipeline
 controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=dtype)
 
-def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
+def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", server_name="127.0.0.1", server_port=7860):
 
     if pretrained_model_name_or_path.endswith(
             ".ckpt"
@@ -196,20 +202,13 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                 input_image = Image.fromarray(res)
             return input_image
 
-    def apply_style(style_name: str, positive: str, negative: str = "") -> tuple[str, str]:
-        p, n = styles.get(style_name, styles[DEFAULT_STYLE_NAME])
-        return p.replace("{prompt}", positive), n + ' ' + negative
-
-    def generate_image(face_image, pose_image, prompt, negative_prompt, style_name, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed, progress=gr.Progress(track_tqdm=True)):
+    def generate_image(face_image, pose_image, prompt, negative_prompt, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed, progress=gr.Progress(track_tqdm=True)):
 
         if face_image is None:
             raise gr.Error(f"Cannot find any input face image! Please upload the face image")
         
         if prompt is None:
             prompt = "a person"
-        
-        # apply the style template
-        prompt, negative_prompt = apply_style(style_name, prompt, negative_prompt)
         
         face_image = load_image(face_image[0])
         face_image = resize_img(face_image)
@@ -243,8 +242,9 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
         
         generator = torch.Generator(device=device).manual_seed(seed)
         
-        print("Start inference...")
-        print(f"[Debug] Prompt: {prompt}, \n[Debug] Neg Prompt: {negative_prompt}")
+        logging.debug("Start inference...")
+        logging.debug(f"Prompt: {prompt}")
+        logging.debug(f"Neg Prompt: {negative_prompt}")
         
         pipe.set_ip_adapter_scale(adapter_strength_ratio)
         images = pipe(
@@ -336,17 +336,25 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                 
                 # prompt
                 prompt = gr.Textbox(label="Prompt",
-                        info="Give simple prompt is enough to achieve good face fidelity",
+                        info="Give simple prompt is enough to achieve good face fedility",
                         placeholder="A photo of a person",
-                        value="")
+                        value=styles[DEFAULT_STYLE_NAME][0],
+                        interactive=True)
                 
+                negative_prompt = gr.Textbox(
+                    label="Negative Prompt", 
+                    placeholder="low quality",
+                    value=styles[DEFAULT_STYLE_NAME][1],
+                    interactive=True,
+                )
+
                 submit = gr.Button("Submit", variant="primary")
                 
                 style = gr.Dropdown(label="Style template", choices=STYLE_NAMES, value=DEFAULT_STYLE_NAME)
                 
                 # strength
                 identitynet_strength_ratio = gr.Slider(
-                    label="IdentityNet strength (for fidelity)",
+                    label="IdentityNet strength (for fedility)",
                     minimum=0,
                     maximum=1.5,
                     step=0.05,
@@ -357,15 +365,10 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                     minimum=0,
                     maximum=1.5,
                     step=0.05,
-                    value=0.80,
+                    value=0.40,
                 )
                 
                 with gr.Accordion(open=False, label="Advanced Options"):
-                    negative_prompt = gr.Textbox(
-                        label="Negative Prompt", 
-                        placeholder="low quality",
-                        value="(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, green",
-                    )
                     num_steps = gr.Slider( 
                         label="Number of sample steps",
                         minimum=20,
@@ -390,7 +393,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                     randomize_seed = gr.Checkbox(label="Randomize seed", value=True)
 
             with gr.Column():
-                gallery = gr.Gallery(label="Generated Images")
+                gallery = gr.Gallery(label="Generated Images", columns=1, rows=1, height=512)
                 usage_tips = gr.Markdown(label="Usage tips of InstantID", value=tips ,visible=False)
 
             face_files.upload(fn=swap_to_gallery, inputs=face_files, outputs=[uploaded_faces, clear_button_face, face_files])
@@ -399,9 +402,11 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
             remove_and_reupload_faces.click(fn=remove_back_to_files, outputs=[uploaded_faces, clear_button_face, face_files])
             remove_and_reupload_poses.click(fn=remove_back_to_files, outputs=[uploaded_poses, clear_button_pose, pose_files])
 
+            change_style = lambda style_name: styles.get(style_name, styles[DEFAULT_STYLE_NAME])
+            style.change(change_style, inputs=[style], outputs=[prompt, negative_prompt])
             submit.click(
                 fn=remove_tips,
-                outputs=usage_tips,            
+                outputs=usage_tips,
             ).then(
                 fn=randomize_seed_fn,
                 inputs=[seed, randomize_seed],
@@ -410,7 +415,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                 api_name=False,
             ).then(
                 fn=generate_image,
-                inputs=[face_files, pose_files, prompt, negative_prompt, style, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed],
+                inputs=[face_files, pose_files, prompt, negative_prompt, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed],
                 outputs=[gallery, usage_tips]
             )
         
@@ -424,13 +429,19 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
         
         gr.Markdown(article)
 
-    demo.launch()
+    demo.launch(server_name=server_name, server_port=server_port)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--pretrained_model_name_or_path", type=str, default="wangqixun/YamerMIX_v8"
+        "--pretrained_model_name_or_path", type=str, default="wangqixun/YamerMIX_v8",
+    )
+    parser.add_argument(
+        "--server_name", type=str, default="127.0.0.1",
+    )
+    parser.add_argument(
+        "--server_port", type=int, default="7860",
     )
     args = parser.parse_args()
 
-    main(args.pretrained_model_name_or_path)
+    main(args.pretrained_model_name_or_path, args.server_name, args.server_port)
