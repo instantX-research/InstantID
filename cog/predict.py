@@ -47,11 +47,12 @@ FEATURE_EXTRACTOR = "./feature-extractor"
 SAFETY_URL = "https://weights.replicate.delivery/default/playgroundai/safety-cache.tar"
 
 SDXL_NAME_TO_PATHLIKE = {
-    # `stable-diffusion-xl-base-1.0` is the default model, it's speical since it's always on disk (downloaded in setup)
+    # These are all huggingface models that we host via gcp + pget
     "stable-diffusion-xl-base-1.0": {
         "slug": "stabilityai/stable-diffusion-xl-base-1.0",
+        "url": "https://weights.replicate.delivery/default/InstantID/models--stabilityai--stable-diffusion-xl-base-1.0.tar",
+        "path": "checkpoints/models--stabilityai--stable-diffusion-xl-base-1.0",
     },
-    # These are all huggingface models that we host via gcp + pget
     "afrodite-xl-v2": {
         "slug": "stablediffusionapi/afrodite-xl-v2",
         "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--afrodite-xl-v2.tar",
@@ -209,18 +210,7 @@ class Predictor(BasePredictor):
             local_files_only=True,
         )
 
-        self.base_weights = "stable-diffusion-xl-base-1.0"
-        weights_info = SDXL_NAME_TO_PATHLIKE[self.base_weights]
-        self.pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
-            weights_info["slug"],
-            controlnet=self.controlnet,
-            torch_dtype=torch.float16,
-            cache_dir=CHECKPOINTS_CACHE,
-            local_files_only=True,
-        )
-
-        self.pipe.cuda()
-        self.pipe.load_ip_adapter_instantid(self.face_adapter)
+        self.load_weights("stable-diffusion-xl-base-1.0")
         self.setup_safety_checker()
 
     def setup_safety_checker(self):
@@ -248,19 +238,6 @@ class Predictor(BasePredictor):
     def load_weights(self, sdxl_weights):
         self.base_weights = sdxl_weights
         weights_info = SDXL_NAME_TO_PATHLIKE[self.base_weights]
-
-        if sdxl_weights == "stable-diffusion-xl-base-1.0":  # Default, it's always there
-            self.pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
-                weights_info["slug"],
-                controlnet=self.controlnet,
-                torch_dtype=torch.float16,
-                cache_dir=CHECKPOINTS_CACHE,
-                local_files_only=True,
-            )
-            self.pipe.cuda()
-            self.pipe.load_ip_adapter_instantid(self.face_adapter)
-            self.setup_safety_checker()
-            return
 
         download_url = weights_info["url"]
         path_to_weights_dir = weights_info["path"]
