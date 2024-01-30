@@ -6,9 +6,12 @@ import sys
 
 import time
 import subprocess
+from typing import List
+
 from cog import BasePredictor, Input, Path
 
 import cv2
+import PIL
 import torch
 import numpy as np
 from PIL import Image
@@ -27,11 +30,10 @@ from pipeline_stable_diffusion_xl_instantid import (
 from diffusers.pipelines.stable_diffusion.safety_checker import (
     StableDiffusionSafetyChecker,
 )
-from transformers import CLIPFeatureExtractor
 from transformers import CLIPImageProcessor
 
 
-# for `ip-adaper`, `ControlNetModel`, and `stable-diffusion-xl-base-1.0`
+# for `ip-adapter`, `ControlNetModel`, and `stable-diffusion-xl-base-1.0`
 CHECKPOINTS_CACHE = "./checkpoints"
 CHECKPOINTS_URL = "https://weights.replicate.delivery/default/InstantID/checkpoints.tar"
 
@@ -120,11 +122,6 @@ SDXL_NAME_TO_PATHLIKE = {
         "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--protovision-xl-high-fidel.tar",
         "path": "checkpoints/models--stablediffusionapi--protovision-xl-high-fidel",
     },
-    "juggernaut-xl-v8": {
-        "slug": "stablediffusionapi/juggernaut-xl-v8",
-        "url": "https://weights.replicate.delivery/default/InstantID/models--stablediffusionapi--juggernaut-xl-v8.tar",
-        "path": "checkpoints/models--stablediffusionapi--juggernaut-xl-v8",
-    },
     # These are non-huggingface models, e.g. .safetensors files
     "RealVisXL_V3.0": {
         "url": "https://weights.replicate.delivery/default/comfy-ui/checkpoints/RealVisXL_V3.0.safetensors.tar",
@@ -134,13 +131,21 @@ SDXL_NAME_TO_PATHLIKE = {
 }
 
 
+def convert_from_cv2_to_image(img: np.ndarray) -> Image:
+    return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+
+
+def convert_from_image_to_cv2(img: Image) -> np.ndarray:
+    return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+
+
 def resize_img(
     input_image,
     max_side=1280,
     min_side=1024,
     size=None,
     pad_to_max_side=False,
-    mode=Image.BILINEAR,
+    mode=PIL.Image.BILINEAR,
     base_pixel_number=64,
 ):
     w, h = input_image.size
@@ -242,21 +247,22 @@ class Predictor(BasePredictor):
 
     def load_weights(self, sdxl_weights):
         self.base_weights = sdxl_weights
+        weights_info = SDXL_NAME_TO_PATHLIKE[self.base_weights]
 
         if sdxl_weights == "stable-diffusion-xl-base-1.0":  # Default, it's always there
-            self.pipe.from_single_file(
-                SDXL_NAME_TO_PATHLIKE[sdxl_weights]["slug"],
+            self.pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
+                weights_info["slug"],
                 controlnet=self.controlnet,
                 torch_dtype=torch.float16,
                 cache_dir=CHECKPOINTS_CACHE,
+                local_files_only=True,
             )
             self.pipe.cuda()
             self.pipe.load_ip_adapter_instantid(self.face_adapter)
+            self.setup_safety_checker()
             return
 
-        weights_info = SDXL_NAME_TO_PATHLIKE[self.base_weights]
         download_url = weights_info["url"]
-
         path_to_weights_dir = weights_info["path"]
         if not os.path.exists(path_to_weights_dir):
             download_weights(download_url, path_to_weights_dir)
@@ -276,7 +282,7 @@ class Predictor(BasePredictor):
                 cache_dir=CHECKPOINTS_CACHE,
                 local_files_only=True,
             )
-        else:
+        else:  # e.g. .safetensors
             self.pipe.from_single_file(
                 path_to_weights_file,
                 controlnet=self.controlnet,
@@ -288,10 +294,16 @@ class Predictor(BasePredictor):
 
     def predict(
         self,
-        image: Path = Input(description="Input image"),
+        image: Path = Input(
+            description="Input face image",
+        ),
+        pose_image: Path = Input(
+            description="(Optional) reference pose image",
+            default=None,
+        ),
         prompt: str = Input(
             description="Input prompt",
-            default="analog film photo of a man. faded film, desaturated, 35mm photo, grainy, vignette, vintage, Kodachrome, Lomography, stained, highly detailed, found footage, masterpiece, best quality",
+            default="a person",
         ),
         negative_prompt: str = Input(
             description="Input Negative Prompt",
@@ -323,13 +335,13 @@ class Predictor(BasePredictor):
             description="Width of output image",
             default=640,
             ge=512,
-            le=2048,
+            le=4096,
         ),
         height: int = Input(
             description="Height of output image",
             default=640,
             ge=512,
-            le=2048,
+            le=4096,
         ),
         num_inference_steps: int = Input(
             description="Number of denoising steps",
@@ -344,50 +356,94 @@ class Predictor(BasePredictor):
             le=50,
         ),
         ip_adapter_scale: float = Input(
-            description="Scale for IP adapter",
+            description="Scale for image adapter strength (for detail)",
             default=0.8,
             ge=0,
-            le=1,
+            le=1.5,
         ),
         controlnet_conditioning_scale: float = Input(
-            description="Scale for ControlNet conditioning",
+            description="Scale for IdentityNet strength (for fidelity)",
             default=0.8,
             ge=0,
-            le=1,
+            le=1.5,
+        ),
+        seed: int = Input(
+            description="Random seed. Leave blank to randomize the seed",
+            default=None,
         ),
         disable_safety_checker: bool = Input(
             description="Disable safety checker for generated images",
             default=False,
         ),
-    ) -> Path:
+    ) -> List[Path]:
         """Run a single prediction on the model"""
+        # If no seed is provided, generate a random seed
+        if seed is None:
+            seed = int.from_bytes(os.urandom(2), "big")
+        print(f"Using seed: {seed}")
 
+        # Load the weights if they are different from the base weights
         if sdxl_weights != self.base_weights:
             self.load_weights(sdxl_weights)
 
         # Run the prediction process
+        # Resize the output if the provided dimensions are different from the current ones
         if self.width != width or self.height != height:
             print(f"[!] Resizing output to {width}x{height}")
             self.width = width
             self.height = height
             self.app.prepare(ctx_id=0, det_size=(self.width, self.height))
 
+        # Load and resize the face image
         face_image = load_image(str(image))
         face_image = resize_img(face_image)
+        face_image_cv2 = convert_from_image_to_cv2(face_image)
+        height, width, _ = face_image_cv2.shape
 
-        face_info = self.app.get(cv2.cvtColor(np.array(face_image), cv2.COLOR_RGB2BGR))
+        # Extract face features
+        face_info = self.app.get(face_image_cv2)
+
+        # Raise an exception if no face is found in the image
+        if len(face_info) == 0:
+            raise Exception(
+                "Cannot find any face in the image! Please upload another person image"
+            )
+
+        # Use the largest face found in the image
         face_info = sorted(
             face_info,
-            key=lambda x: (x["bbox"][2] - x["bbox"][0]) * (x["bbox"][3] - x["bbox"][1]),
-            reverse=True,
-        )[
-            0
-        ]  # only use the maximum face
+            key=lambda x: (x["bbox"][2] - x["bbox"][0]) * x["bbox"][3] - x["bbox"][1],
+        )[-1]
         face_emb = face_info["embedding"]
-        face_kps = draw_kps(face_image, face_info["kps"])
+        face_kps = draw_kps(convert_from_cv2_to_image(face_image_cv2), face_info["kps"])
 
+        # If a pose image is provided, use it to extract the pose
+        if pose_image is not None:
+            pose_image = load_image(str(pose_image))
+            pose_image = resize_img(pose_image)
+            pose_image_cv2 = convert_from_image_to_cv2(pose_image)
+            face_info = self.app.get(pose_image_cv2)
+
+            # Raise an exception if no face is found in the pose image
+            if len(face_info) == 0:
+                raise Exception(
+                    "Cannot find any face in the reference image! Please upload another person image"
+                )
+
+            face_info = face_info[-1]
+            face_kps = draw_kps(pose_image, face_info["kps"])
+
+            width, height = face_kps.size
+
+        # Set the seed for the random number generator
+        generator = torch.Generator(device="cuda").manual_seed(seed)
+
+        print("Start inference...")
+        print(f"[!] Prompt: {prompt}, \n[!] Neg Prompt: {negative_prompt}")
+
+        # Set the scale for the image adapter and run the pipeline
         self.pipe.set_ip_adapter_scale(ip_adapter_scale)
-        image = self.pipe(
+        images = self.pipe(
             prompt=prompt,
             negative_prompt=negative_prompt,
             image_embeds=face_emb,
@@ -395,16 +451,23 @@ class Predictor(BasePredictor):
             controlnet_conditioning_scale=controlnet_conditioning_scale,
             num_inference_steps=num_inference_steps,
             guidance_scale=guidance_scale,
-        ).images[0]
+            height=height,
+            width=width,
+            generator=generator,
+        ).images
 
-        if not disable_safety_checker:
-            _, has_nsfw_content_list = self.run_safety_checker(image)
-            has_nsfw_content = any(has_nsfw_content_list)
-            print(f"NSFW content detected: {has_nsfw_content}")
-            if has_nsfw_content:
-                raise Exception(
-                    "NSFW content detected. Try running it again, or try a different prompt."
-                )
-        output_path = "/tmp/out.png"
-        image.save(output_path)
-        return Path(output_path)
+        # Save the generated images and check for NSFW content
+        output_paths = []
+        for i, output_image in enumerate(images):
+            if not disable_safety_checker:
+                _, has_nsfw_content_list = self.run_safety_checker(output_image)
+                has_nsfw_content = any(has_nsfw_content_list)
+                print(f"NSFW content detected: {has_nsfw_content}")
+                if has_nsfw_content:
+                    raise Exception(
+                        "NSFW content detected. Try running it again, or try a different prompt."
+                    )
+            output_path = f"/tmp/out_{i}.png"
+            output_image.save(output_path)
+            output_paths.append(Path(output_path))
+        return output_paths
