@@ -34,6 +34,7 @@ STYLE_NAMES = list(styles.keys())
 DEFAULT_STYLE_NAME = "Watercolor"
 DEFAULT_MODEL = "wangqixun/YamerMIX_v8"
 MODEL_DIRECTORY = "./models"
+CHECKPOINT_DIRECTORY = "./checkpoints"
 MAX_SIDE = 1280
 MIN_SIDE = 1024
 
@@ -48,27 +49,30 @@ elif torch.cuda.is_available():
 else:
     device = "cpu"
 
-# Download ControlNet checkpoint from Hugging Face Hub
-hf_hub_download(
-    repo_id="InstantX/InstantID",
-    filename="ControlNetModel/config.json",
-    local_dir="./checkpoints",
-    local_dir_use_symlinks=False
-)
-hf_hub_download(
-    repo_id="InstantX/InstantID",
-    filename="ControlNetModel/diffusion_pytorch_model.safetensors",
-    local_dir="./checkpoints",
-    local_dir_use_symlinks=False
-)
+# Download ControlNet checkpoint from Hugging Face Hub if the files do not already exist
+if not os.path.exists(os.path.join(CHECKPOINT_DIRECTORY, "ControlNetModel/config.json")):
+    hf_hub_download(
+        repo_id="InstantX/InstantID",
+        filename="ControlNetModel/config.json",
+        local_dir=CHECKPOINT_DIRECTORY,
+        local_dir_use_symlinks=False
+    )
+if not os.path.exists(os.path.join(CHECKPOINT_DIRECTORY, "ControlNetModel/diffusion_pytorch_model.safetensors")):
+    hf_hub_download(
+        repo_id="InstantX/InstantID",
+        filename="ControlNetModel/diffusion_pytorch_model.safetensors",
+        local_dir=CHECKPOINT_DIRECTORY,
+        local_dir_use_symlinks=False
+    )
 
-# Download IP-Adapter checkpoint from Hugging Face Hub
-hf_hub_download(
-    repo_id="InstantX/InstantID",
-    filename="ip-adapter.bin",
-    local_dir="./checkpoints",
-    local_dir_use_symlinks=False
-)
+# Download IP-Adapter checkpoint from Hugging Face Hub if the files do not already exist
+if not os.path.exists(os.path.join(CHECKPOINT_DIRECTORY, "ip-adapter.bin")):
+    hf_hub_download(
+        repo_id="InstantX/InstantID",
+        filename="ip-adapter.bin",
+        local_dir=CHECKPOINT_DIRECTORY,
+        local_dir_use_symlinks=False
+    )
 
 # Load face encoder
 app = FaceAnalysis(name="antelopev2", root='./', providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
