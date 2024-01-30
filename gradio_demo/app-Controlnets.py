@@ -44,17 +44,16 @@ app.prepare(ctx_id=0, det_size=(640, 640))
 face_adapter = f'./checkpoints/ip-adapter.bin'
 controlnet_path = f'./checkpoints/ControlNetModel'
 
-# Load pipeline
+# Load pipeline face ControlNetModel
 controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=dtype)
 
 # controlnet-pose
 controlnet_pose_model = "thibaud/controlnet-openpose-sdxl-1.0"
-controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=torch.float16)
-controlnet_pose = ControlNetModel.from_pretrained(controlnet_pose_model, torch_dtype=torch.float16)
+controlnet_pose = ControlNetModel.from_pretrained(controlnet_pose_model, torch_dtype=dtype)
 openpose = OpenposeDetector.from_pretrained("lllyasviel/ControlNet")
 
 
-def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
+def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_LCM=False):
 
     if pretrained_model_name_or_path.endswith(
             ".ckpt"
@@ -399,7 +398,8 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                         value="")
                 
                 submit = gr.Button("Submit", variant="primary")
-                
+                enable_LCM = gr.Checkbox(label="Enable Fast Inference with LCM", value=enable_LCM)
+
                 style = gr.Dropdown(label="Style template", choices=STYLE_NAMES, value=DEFAULT_STYLE_NAME)
                 
                 # strength
@@ -424,9 +424,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                     step=0.05,
                     value=0.80,
                 )
-                
                 with gr.Accordion(open=False, label="Advanced Options"):
-                    enable_LCM = gr.Checkbox(label="Enable Fast Inference with LCM", value=False)
                     negative_prompt = gr.Textbox(
                         label="Negative Prompt", 
                         placeholder="low quality",
@@ -437,14 +435,14 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                         minimum=1,
                         maximum=100,
                         step=1,
-                        value=30,
+                        value=5 if enable_LCM else 30,
                     )
                     guidance_scale = gr.Slider(
                         label="Guidance scale",
                         minimum=0.1,
                         maximum=20.0,
                         step=0.1,
-                        value=5,
+                        value=0.0 if enable_LCM else 5.0,
                     )
                     seed = gr.Slider(
                         label="Seed",
@@ -491,9 +489,8 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--pretrained_model_name_or_path", type=str, default="wangqixun/YamerMIX_v8"
-    )
+    parser.add_argument("--pretrained_model_name_or_path", type=str, default="wangqixun/YamerMIX_v8")
+    parser.add_argument("--enable_LCM", type=bool, default=os.environ.get("ENABLE_LCM", False))
     args = parser.parse_args()
 
-    main(args.pretrained_model_name_or_path)
+    main(args.pretrained_model_name_or_path, args.enable_LCM)
