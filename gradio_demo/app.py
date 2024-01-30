@@ -52,19 +52,22 @@ else:
 hf_hub_download(
     repo_id="InstantX/InstantID",
     filename="ControlNetModel/config.json",
-    local_dir="./checkpoints"
+    local_dir="./checkpoints",
+    local_dir_use_symlinks=False
 )
 hf_hub_download(
     repo_id="InstantX/InstantID",
     filename="ControlNetModel/diffusion_pytorch_model.safetensors",
-    local_dir="./checkpoints"
+    local_dir="./checkpoints",
+    local_dir_use_symlinks=False
 )
 
 # Download IP-Adapter checkpoint from Hugging Face Hub
 hf_hub_download(
     repo_id="InstantX/InstantID",
     filename="ip-adapter.bin",
-    local_dir="./checkpoints"
+    local_dir="./checkpoints",
+    local_dir_use_symlinks=False
 )
 
 # Load face encoder
