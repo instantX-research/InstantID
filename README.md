@@ -215,6 +215,7 @@ python gradio_demo/app.py
 ## Acknowledgements
 - InstantID is developed by InstantX Team at Xiaohongshu Inc, all copyright reserved.
 - Our work is highly inspired by [IP-Adapter](https://github.com/tencent-ailab/IP-Adapter) and [ControlNet](https://github.com/lllyasviel/ControlNet). Thanks for their great works!
+- Thanks [Yamer](https://civitai.com/user/Yamer) for developing [YamerMIX](https://civitai.com/models/84040?modelVersionId=196039), we use it as base model in our demo.
 - Thanks [ZHO-ZHO-ZHO](https://github.com/ZHO-ZHO-ZHO), [huxiuhan](https://github.com/huxiuhan), [sdbds](https://github.com/sdbds), [zsxkib](https://replicate.com/zsxkib) for their generous contributions.
 - Thanks to the [HuggingFace](https://github.com/huggingface) gradio team for their free GPU support!
 - Thanks to the [ModelScope](https://github.com/modelscope/modelscope) team for their free GPU support!
