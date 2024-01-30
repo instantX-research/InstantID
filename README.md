@@ -196,8 +196,9 @@ python gradio_demo/app.py
 ### Replicate Demo
 - [zsxkib/instant-id](https://replicate.com/zsxkib/instant-id)
 
-### RunPod Template
-- [InstantID RunPod Template](https://runpod.io/gsc?template=10apqooxnz&ref=2xxro4sy)
+### RunPod
+- [Pod Template](https://runpod.io/gsc?template=10apqooxnz&ref=2xxro4sy)
+- [Serverless Worker](https://github.com/ashleykleynhans/runpod-worker-instantid)
 
 ### Docker Image
 - [ashleykleynhans/instantid-docker](https://github.com/ashleykleynhans/instantid-docker)
