@@ -176,7 +176,7 @@ num_inference_steps = 10
 guidance_scale = 0
 ```
 
-## Start a local gradio demo
+## Start a local gradio demo <a href='https://github.com/gradio-app/gradio'><img src='https://img.shields.io/github/stars/gradio-app/gradio'></a>
 Run the following command:
 
 ```python
@@ -213,6 +213,7 @@ python gradio_demo/app.py
 - Thanks [ZHO-ZHO-ZHO](https://github.com/ZHO-ZHO-ZHO), [huxiuhan](https://github.com/huxiuhan), [sdbds](https://github.com/sdbds), [zsxkib](https://replicate.com/zsxkib) for their generous contributions.
 - Thanks to the [HuggingFace](https://github.com/huggingface) gradio team for their free GPU support!
 - Thanks to the [ModelScope](https://github.com/modelscope/modelscope) team for their free GPU support!
+- Thanks to the [OpenXLab](https://openxlab.org.cn/apps/detail/InstantX/InstantID) team for their free GPU support!
 
 ## Disclaimer
 The code of InstantID is released under [Apache License](https://github.com/InstantID/InstantID?tab=Apache-2.0-1-ov-file#readme) for both academic and commercial usage. **However, both manual-downloading and auto-downloading face models from insightface are for non-commercial research purposes only** accoreding to their [license](https://github.com/deepinsight/insightface?tab=readme-ov-file#license). Users are granted the freedom to create images using this tool, but they are obligated to comply with local laws and utilize it responsibly. The developers will not assume any responsibility for potential misuse by users.
