@@ -351,7 +351,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
 
         if len(face_info) == 0:
             raise gr.Error(
-                f"Cannot find any face in the image! Please upload another person image"
+                f"Unable to detect a face in the image. Please upload a different photo with a clear face."
             )
 
         face_info = sorted(
@@ -433,12 +433,12 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
     <b>Official 🤗 Gradio demo</b> for <a href='https://github.com/InstantID/InstantID' target='_blank'><b>InstantID: Zero-shot Identity-Preserving Generation in Seconds</b></a>.<br>
 
     How to use:<br>
-    1. Upload a person image. For multiple person images, we will only detect the biggest face. Make sure face is not too small and not significantly blocked or blurred.
-    2. (Optionally) upload another person image as reference pose. If not uploaded, we will use the first person image to extract landmarks. If you use a cropped face at step1, it is recommeneded to upload it to extract a new pose.
-    3. Enter a text prompt as done in normal text-to-image models.
-    4. Click the <b>Submit</b> button to start customizing.
-    5. Share your customizd photo with your friends, enjoy😊!
-    """
+    1. Upload an image with a face. For images with multiple faces, we will only detect the largest face. Ensure the face is not too small and is clearly visible without significant obstructions or blurring.
+    2. (Optional) You can upload another image as a reference for the face pose. If you don't, we will use the first detected face image to extract facial landmarks. If you use a cropped face at step 1, it is recommended to upload it to define a new face pose.
+    3. (Optional) You can select multiple ControlNet models to control the generation process. The default is to use the IdentityNet only. The ControlNet models include pose skeleton, canny, and depth. You can adjust the strength of each ControlNet model to control the generation process.
+    4. Enter a text prompt, as done in normal text-to-image models.
+    5. Click the <b>Submit</b> button to begin customization.
+    6. Share your customized photo with your friends and enjoy! 😊"""
 
     article = r"""
     ---
@@ -460,8 +460,8 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
 
     tips = r"""
     ### Usage tips of InstantID
-    1. If you're not satisfied with the similarity, try to increase the weight of "IdentityNet Strength" and "Adapter Strength".
-    2. If you feel that the saturation is too high, first decrease the Adapter strength. If it is still too high, then decrease the IdentityNet strength.
+    1. If you're not satisfied with the similarity, try increasing the weight of "IdentityNet Strength" and "Adapter Strength."    
+    2. If you feel that the saturation is too high, first decrease the Adapter strength. If it remains too high, then decrease the IdentityNet strength.
     3. If you find that text control is not as expected, decrease Adapter strength.
     4. If you find that realistic style is not good enough, go for our Github repo and use a more realistic base model.
     """
@@ -483,7 +483,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
                     )
                     # optional: upload a reference pose image
                     pose_file = gr.Image(
-                        label="Upload a reference pose image (optional)",
+                        label="Upload a reference pose image (Optional)",
                         type="filepath",
                     )
 
@@ -497,9 +497,9 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
 
                 submit = gr.Button("Submit", variant="primary")
                 enable_LCM = gr.Checkbox(
-                    label="Enable Fast Inference with LCM", value=enable_lcm_arg
+                    label="Enable Fast Inference with LCM", value=enable_lcm_arg,
+                    info="LCM speeds up the inference step, the trade-off is the quality of the generated image. It performs better with portrait face images rather than distant faces",
                 )
-
                 style = gr.Dropdown(
                     label="Style template",
                     choices=STYLE_NAMES,
@@ -523,7 +523,8 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
                 )
                 with gr.Accordion("Controlnet"):
                     controlnet_selection = gr.CheckboxGroup(
-                        ["pose", "canny", "depth"], label="Controlnet", value=["pose"]
+                        ["pose", "canny", "depth"], label="Controlnet", value=["pose"],
+                        info="Use pose for skeleton inference, canny for edge detection, and depth for depth map estimation. You can try all three to control the generation process"
                     )
                     pose_strength = gr.Slider(
                         label="Pose strength",
@@ -591,7 +592,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
             with gr.Column(scale=1):
                 gallery = gr.Image(label="Generated Images")
                 usage_tips = gr.Markdown(
-                    label="Usage tips of InstantID", value=tips, visible=False
+                    label="InstantID Usage Tips", value=tips, visible=False
                 )
 
             submit.click(
