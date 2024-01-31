@@ -16,12 +16,10 @@ from PIL import Image
 import diffusers
 from diffusers.utils import load_image
 from diffusers.models import ControlNetModel
-from diffusers import LCMScheduler
 from diffusers.pipelines.controlnet.multicontrolnet import MultiControlNetModel
 
 from huggingface_hub import hf_hub_download
 
-import insightface
 from insightface.app import FaceAnalysis
 
 from style_template import styles
@@ -52,7 +50,9 @@ face_adapter = f"./checkpoints/ip-adapter.bin"
 controlnet_path = f"./checkpoints/ControlNetModel"
 
 # Load pipeline face ControlNetModel
-controlnet_identitynet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=dtype)
+controlnet_identitynet = ControlNetModel.from_pretrained(
+    controlnet_path, torch_dtype=dtype
+)
 
 # controlnet-pose
 controlnet_pose_model = "thibaud/controlnet-openpose-sdxl-1.0"
@@ -79,6 +79,7 @@ controlnet_map_fn = {
     "canny": get_canny_image,
     "depth": get_depth_map,
 }
+
 
 def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=False):
     if pretrained_model_name_or_path.endswith(
@@ -165,7 +166,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
             [
                 "./examples/sam_resize.png",
                 "./examples/poses/pose4.jpg",
-                "a man doing a silly pose",
+                "a man doing a silly pose wearing a suite",
                 "Jungle",
                 "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, gree",
             ],
@@ -186,23 +187,24 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
         ]
         return case
 
-    def run_for_examples(face_file, pose_file, prompt, style, negative_prompt):                
+    def run_for_examples(face_file, pose_file, prompt, style, negative_prompt):
         return generate_image(
             face_file,
             pose_file,
             prompt,
             negative_prompt,
             style,
-            30, # num_steps
-            0.9, # identitynet_strength_ratio
-            0.9, # adapter_strength_ratio
-            0.5, # pose_strength
-            0.4, # canny_strength
-            0.5, # depth_strength
-            ["pose", "canny"], # controlnet_selection
-            5.0, # guidance_scale  
-            42, # seed
-            False, # enable_LCM
+            20,  # num_steps
+            0.8,  # identitynet_strength_ratio
+            0.8,  # adapter_strength_ratio
+            0.4,  # pose_strength
+            0.3,  # canny_strength
+            0.5,  # depth_strength
+            ["pose", "canny"],  # controlnet_selection
+            5.0,  # guidance_scale
+            42,  # seed
+            "EulerDiscreteScheduler",  # scheduler
+            False,  # enable_LCM
         )
 
     def convert_from_cv2_to_image(img: np.ndarray) -> Image:
@@ -308,17 +310,25 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
         controlnet_selection,
         guidance_scale,
         seed,
+        scheduler,
         enable_LCM,
         progress=gr.Progress(track_tqdm=True),
     ):
+
         if enable_LCM:
-            pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
+            pipe.scheduler = diffusers.LCMScheduler.from_config(pipe.scheduler.config)
             pipe.enable_lora()
         else:
             pipe.disable_lora()
-            pipe.scheduler = diffusers.EulerDiscreteScheduler.from_config(
-                pipe.scheduler.config
-            )
+            scheduler_class_name = scheduler.split("-")[0]
+
+            add_kwargs = {}
+            if len(scheduler.split("-")) > 1:
+                add_kwargs["use_karras_sigmas"] = True
+            if len(scheduler.split("-")) > 2:
+                add_kwargs["algorithm_type"] = "sde-dpmsolver++"
+            scheduler = getattr(diffusers, scheduler_class_name)
+            pipe.scheduler = scheduler.from_config(pipe.scheduler.config, **add_kwargs)
 
         if face_image_path is None:
             raise gr.Error(
@@ -377,13 +387,21 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
                 "canny": canny_strength,
                 "depth": depth_strength,
             }
-            pipe.controlnet = MultiControlNetModel([controlnet_identitynet] + [controlnet_map[s] for s in controlnet_selection])
-            control_scales=[float(identitynet_strength_ratio)] + [controlnet_scales[s] for s in controlnet_selection]
-            control_images= [face_kps] +  [controlnet_map_fn[s](img_controlnet).resize((width, height)) for s in controlnet_selection]
+            pipe.controlnet = MultiControlNetModel(
+                [controlnet_identitynet]
+                + [controlnet_map[s] for s in controlnet_selection]
+            )
+            control_scales = [float(identitynet_strength_ratio)] + [
+                controlnet_scales[s] for s in controlnet_selection
+            ]
+            control_images = [face_kps] + [
+                controlnet_map_fn[s](img_controlnet).resize((width, height))
+                for s in controlnet_selection
+            ]
         else:
             pipe.controlnet = controlnet_identitynet
-            control_scales=float(identitynet_strength_ratio)
-            control_images=face_kps   
+            control_scales = float(identitynet_strength_ratio)
+            control_images = face_kps
 
         generator = torch.Generator(device=device).manual_seed(seed)
 
@@ -555,6 +573,19 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
                         step=1,
                         value=42,
                     )
+                    schedulers = [
+                        "DEISMultistepScheduler",
+                        "HeunDiscreteScheduler",
+                        "EulerDiscreteScheduler",
+                        "DPMSolverMultistepScheduler",
+                        "DPMSolverMultistepScheduler-Karras",
+                        "DPMSolverMultistepScheduler-Karras-SDE",
+                    ]
+                    scheduler = gr.Dropdown(
+                        label="Schedulers",
+                        choices=schedulers,
+                        value="EulerDiscreteScheduler",
+                    )
                     randomize_seed = gr.Checkbox(label="Randomize seed", value=True)
 
             with gr.Column(scale=1):
@@ -589,6 +620,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
                     controlnet_selection,
                     guidance_scale,
                     seed,
+                    scheduler,
                     enable_LCM,
                 ],
                 outputs=[gallery, usage_tips],
