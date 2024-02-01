@@ -160,6 +160,11 @@ image = pipe(
 ).images[0]
 ```
 
+To save VRAM, you can enable CPU offloading
+```python
+pipe.enable_model_cpu_offload()
+```
+
 ## Speed Up with LCM-LoRA
 
 Our work is compatible with [LCM-LoRA](https://github.com/luosiallen/latent-consistency-model). First, download the model.
