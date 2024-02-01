@@ -1,6 +1,7 @@
 import sys
-
 sys.path.append("./")
+
+from typing import Tuple
 
 import os
 import cv2
@@ -292,7 +293,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
 
     def apply_style(
         style_name: str, positive: str, negative: str = ""
-    ) -> tuple[str, str]:
+    ) -> Tuple[str, str]:
         p, n = styles.get(style_name, styles[DEFAULT_STYLE_NAME])
         return p.replace("{prompt}", positive), n + " " + negative
 

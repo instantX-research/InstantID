@@ -1,6 +1,8 @@
 import sys
 sys.path.append('./')
 
+from typing import Tuple
+
 import os
 import cv2
 import math
@@ -205,7 +207,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
                 input_image = Image.fromarray(res)
             return input_image
 
-    def apply_style(style_name: str, positive: str, negative: str = "") -> tuple[str, str]:
+    def apply_style(style_name: str, positive: str, negative: str = "") -> Tuple[str, str]:
         p, n = styles.get(style_name, styles[DEFAULT_STYLE_NAME])
         return p.replace("{prompt}", positive), n + ' ' + negative
 
