@@ -7,7 +7,7 @@ from diffusers.utils import load_image
 from diffusers.models import ControlNetModel
 
 from insightface.app import FaceAnalysis
-from pipeline_stable_diffusion_xl_instantid import StableDiffusionXLInstantIDPipeline, draw_kps
+from pipeline_stable_diffusion_xl_instantid_full import StableDiffusionXLInstantIDPipeline, draw_kps
 
 def resize_img(input_image, max_side=1280, min_side=1024, size=None, 
                pad_to_max_side=False, mode=Image.BILINEAR, base_pixel_number=64):

@@ -7,8 +7,6 @@
 
 <sup>*</sup>corresponding authors
 
-{haofanwang.ai, wangqixun.ai}@gmail.com
-
 <a href='https://instantid.github.io/'><img src='https://img.shields.io/badge/Project-Page-green'></a>
 <a href='https://arxiv.org/abs/2401.07519'><img src='https://img.shields.io/badge/Technique-Report-red'></a>
 <a href='https://huggingface.co/papers/2401.07519'><img src='https://img.shields.io/static/v1?label=Paper&message=Huggingface&color=orange'></a> 
@@ -69,6 +67,13 @@ from huggingface_hub import hf_hub_download
 hf_hub_download(repo_id="InstantX/InstantID", filename="ControlNetModel/config.json", local_dir="./checkpoints")
 hf_hub_download(repo_id="InstantX/InstantID", filename="ControlNetModel/diffusion_pytorch_model.safetensors", local_dir="./checkpoints")
 hf_hub_download(repo_id="InstantX/InstantID", filename="ip-adapter.bin", local_dir="./checkpoints")
+```
+
+Or run the following command to download all models:
+
+```python
+pip install -r gradio_demo/requirements.txt
+python gradio_demo/download_models.py
 ```
 
 If you cannot access to Huggingface, you can use [hf-mirror](https://hf-mirror.com/) to download models.
@@ -181,6 +186,11 @@ Run the following command:
 
 ```python
 python gradio_demo/app.py
+```
+
+or MultiControlNet version:
+```python
+gradio_demo/app-multicontrolnet.py 
 ```
 
 ## Usage Tips
