@@ -98,7 +98,6 @@ if __name__ == "__main__":
     processed_image_midas = processed_image_midas.resize(pose_image.size)
     
     # enhance face region
-    width, height = face_kps.size
     control_mask = np.zeros([height, width, 3])
     x1, y1, x2, y2 = face_info["bbox"]
     x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)

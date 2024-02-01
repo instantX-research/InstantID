@@ -205,6 +205,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
             42,  # seed
             "EulerDiscreteScheduler",  # scheduler
             False,  # enable_LCM
+            True,  # enable_Face_Region
         )
 
     def convert_from_cv2_to_image(img: np.ndarray) -> Image:

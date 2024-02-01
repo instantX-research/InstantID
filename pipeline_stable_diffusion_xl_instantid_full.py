@@ -1098,7 +1098,7 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
                                                                                   return_dict=False)
 
                         # controlnet mask
-                        if control_mask_wight_image_list is not None:
+                        if control_index == 0 and control_mask_wight_image_list is not None:
                             down_block_res_samples = [
                                 down_block_res_sample * mask_weight
                                 for down_block_res_sample, mask_weight in zip(down_block_res_samples, control_mask_wight_image_list)
