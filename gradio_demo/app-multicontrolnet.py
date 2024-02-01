@@ -23,7 +23,7 @@ from huggingface_hub import hf_hub_download
 from insightface.app import FaceAnalysis
 
 from style_template import styles
-from pipeline_stable_diffusion_xl_instantid import StableDiffusionXLInstantIDPipeline
+from pipeline_stable_diffusion_xl_instantid_full import StableDiffusionXLInstantIDPipeline
 from model_util import load_models_xl, get_torch_device, torch_gc
 from controlnet_util import openpose, get_depth_map, get_canny_image
 
@@ -312,6 +312,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
         seed,
         scheduler,
         enable_LCM,
+        enhance_face_region,
         progress=gr.Progress(track_tqdm=True),
     ):
 
@@ -381,6 +382,15 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
 
             width, height = face_kps.size
 
+        if enhance_face_region:
+            control_mask = np.zeros([height, width, 3])
+            x1, y1, x2, y2 = face_info["bbox"]
+            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+            control_mask[y1:y2, x1:x2] = 255
+            control_mask = Image.fromarray(control_mask.astype(np.uint8))
+        else:
+            control_mask = None
+
         if len(controlnet_selection) > 0:
             controlnet_scales = {
                 "pose": pose_strength,
@@ -414,6 +424,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
             negative_prompt=negative_prompt,
             image_embeds=face_emb,
             image=control_images,
+            control_mask=control_mask,
             controlnet_conditioning_scale=control_scales,
             num_inference_steps=num_steps,
             guidance_scale=guidance_scale,
@@ -588,6 +599,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
                         value="EulerDiscreteScheduler",
                     )
                     randomize_seed = gr.Checkbox(label="Randomize seed", value=True)
+                    enhance_face_region = gr.Checkbox(label="Enhance non-face region", value=True)
 
             with gr.Column(scale=1):
                 gallery = gr.Image(label="Generated Images")
@@ -623,6 +635,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
                     seed,
                     scheduler,
                     enable_LCM,
+                    enhance_face_region,
                 ],
                 outputs=[gallery, usage_tips],
             )

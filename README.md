@@ -198,7 +198,7 @@ gradio_demo/app-multicontrolnet.py
 - For over-saturation, decrease the ip_adapter_scale. If not work, decrease controlnet_conditioning_scale.
 - For higher text control ability, decrease ip_adapter_scale.
 - For specific styles, choose corresponding base model makes differences.
-- We have not supported multi-person yet, will only use the largest face as reference pose.
+- We have not supported multi-person yet, only use the largest face as reference facial landmarks.
 - We provide a [style template](https://github.com/ahgsql/StyleSelectorXL/blob/main/sdxl_styles.json) for reference.
 
 ## Community Resources
@@ -227,9 +227,6 @@ gradio_demo/app-multicontrolnet.py
 
 ## Disclaimer
 The code of InstantID is released under [Apache License](https://github.com/InstantID/InstantID?tab=Apache-2.0-1-ov-file#readme) for both academic and commercial usage. **However, both manual-downloading and auto-downloading face models from insightface are for non-commercial research purposes only** accoreding to their [license](https://github.com/deepinsight/insightface?tab=readme-ov-file#license). Users are granted the freedom to create images using this tool, but they are obligated to comply with local laws and utilize it responsibly. The developers will not assume any responsibility for potential misuse by users.
-
-## Declaration
-🚨🚨🚨 We solemnly clarify that [FAKE][FAKE][FAKE] http://instantid.org [FAKE][FAKE][FAKE] is not authorized and has no relationship with us. It is infringing and quite misleading, and has never contacted us for official cooperation. Please be aware of your personal privacy and subscription fraud. We reserve all legal rights.
 
 ## Star History
 
