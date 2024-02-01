@@ -15,6 +15,7 @@ from PIL import Image
 import diffusers
 from diffusers.utils import load_image
 from diffusers.models import ControlNetModel
+from diffusers import LCMScheduler
 
 from huggingface_hub import hf_hub_download
 
@@ -22,7 +23,7 @@ import insightface
 from insightface.app import FaceAnalysis
 
 from style_template import styles
-from pipeline_stable_diffusion_xl_instantid import StableDiffusionXLInstantIDPipeline
+from pipeline_stable_diffusion_xl_instantid_full import StableDiffusionXLInstantIDPipeline
 from model_util import load_models_xl, get_torch_device, torch_gc
 
 import gradio as gr
@@ -45,7 +46,7 @@ controlnet_path = f'./checkpoints/ControlNetModel'
 # Load pipeline
 controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=dtype)
 
-def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
+def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=False):
 
     if pretrained_model_name_or_path.endswith(
             ".ckpt"
@@ -86,58 +87,66 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
         pipe.scheduler = diffusers.EulerDiscreteScheduler.from_config(pipe.scheduler.config)
 
     pipe.load_ip_adapter_instantid(face_adapter)
-
+    # load and disable LCM
+    pipe.load_lora_weights("latent-consistency/lcm-lora-sdxl")
+    pipe.disable_lora()
+    def toggle_lcm_ui(value):
+        if value:
+            return (
+                gr.update(minimum=0, maximum=100, step=1, value=5),
+                gr.update(minimum=0.1, maximum=20.0, step=0.1, value=1.5)
+            )
+        else:
+            return (
+                gr.update(minimum=5, maximum=100, step=1, value=30),
+                gr.update(minimum=0.1, maximum=20.0, step=0.1, value=5)
+            )
+    
     def randomize_seed_fn(seed: int, randomize_seed: bool) -> int:
         if randomize_seed:
             seed = random.randint(0, MAX_SEED)
         return seed
-
-    def swap_to_gallery(images):
-        return gr.update(value=images, visible=True), gr.update(visible=True), gr.update(visible=False)
-
-    def upload_example_to_gallery(images, prompt, style, negative_prompt):
-        return gr.update(value=images, visible=True), gr.update(visible=True), gr.update(visible=False)
-
-    def remove_back_to_files():
-        return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True)
-
+    
     def remove_tips():
         return gr.update(visible=False)
 
     def get_example():
         case = [
             [
-                ['./examples/yann-lecun_resize.jpg'],
+                './examples/yann-lecun_resize.jpg',
                 "a man",
                 "Snow",
                 "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, green",
             ],
             [
-                ['./examples/musk_resize.jpeg'],
+                './examples/musk_resize.jpeg',
                 "a man",
                 "Mars",
                 "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, green",
             ],
             [
-                ['./examples/sam_resize.png'],
+                './examples/sam_resize.png',
                 "a man",
                 "Jungle",
                 "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, gree",
             ],
             [
-                ['./examples/schmidhuber_resize.png'],
+                './examples/schmidhuber_resize.png',
                 "a man",
                 "Neon",
                 "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, green",
             ],
             [
-                ['./examples/kaifu_resize.png'],
+                './examples/kaifu_resize.png',
                 "a man",
                 "Vibrant Color",
                 "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, photo, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, green",
             ],
         ]
         return case
+
+    def run_for_examples(face_file, prompt, style, negative_prompt):
+        return generate_image(face_file, None, prompt, negative_prompt, style, 30, 0.8, 0.8, 5, 42, False, True)
 
     def convert_from_cv2_to_image(img: np.ndarray) -> Image:
         return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
@@ -200,9 +209,15 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
         p, n = styles.get(style_name, styles[DEFAULT_STYLE_NAME])
         return p.replace("{prompt}", positive), n + ' ' + negative
 
-    def generate_image(face_image, pose_image, prompt, negative_prompt, style_name, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed, progress=gr.Progress(track_tqdm=True)):
-
-        if face_image is None:
+    def generate_image(face_image_path, pose_image_path, prompt, negative_prompt, style_name, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed, enable_LCM, enhance_face_region, progress=gr.Progress(track_tqdm=True)):
+        if enable_LCM:
+            pipe.enable_lora()
+            pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
+        else:
+            pipe.disable_lora()
+            pipe.scheduler = diffusers.EulerDiscreteScheduler.from_config(pipe.scheduler.config)
+    
+        if face_image_path is None:
             raise gr.Error(f"Cannot find any input face image! Please upload the face image")
         
         if prompt is None:
@@ -211,7 +226,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
         # apply the style template
         prompt, negative_prompt = apply_style(style_name, prompt, negative_prompt)
         
-        face_image = load_image(face_image[0])
+        face_image = load_image(face_image_path)
         face_image = resize_img(face_image)
         face_image_cv2 = convert_from_image_to_cv2(face_image)
         height, width, _ = face_image_cv2.shape
@@ -226,8 +241,8 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
         face_emb = face_info['embedding']
         face_kps = draw_kps(convert_from_cv2_to_image(face_image_cv2), face_info['kps'])
         
-        if pose_image is not None:
-            pose_image = load_image(pose_image[0])
+        if pose_image_path is not None:
+            pose_image = load_image(pose_image_path)
             pose_image = resize_img(pose_image)
             pose_image_cv2 = convert_from_image_to_cv2(pose_image)
             
@@ -240,7 +255,16 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
             face_kps = draw_kps(pose_image, face_info['kps'])
             
             width, height = face_kps.size
-        
+
+        if enhance_face_region:
+            control_mask = np.zeros([height, width, 3])
+            x1, y1, x2, y2 = face_info["bbox"]
+            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+            control_mask[y1:y2, x1:x2] = 255
+            control_mask = Image.fromarray(control_mask.astype(np.uint8))
+        else:
+            control_mask = None
+                        
         generator = torch.Generator(device=device).manual_seed(seed)
         
         print("Start inference...")
@@ -252,6 +276,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
             negative_prompt=negative_prompt,
             image_embeds=face_emb,
             image=face_kps,
+            control_mask=control_mask,
             controlnet_conditioning_scale=float(identitynet_strength_ratio),
             num_inference_steps=num_steps,
             guidance_scale=guidance_scale,
@@ -260,7 +285,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
             generator=generator
         ).images
 
-        return images, gr.update(visible=True)
+        return images[0], gr.update(visible=True)
 
     ### Description
     title = r"""
@@ -271,11 +296,11 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
     <b>Official 🤗 Gradio demo</b> for <a href='https://github.com/InstantID/InstantID' target='_blank'><b>InstantID: Zero-shot Identity-Preserving Generation in Seconds</b></a>.<br>
 
     How to use:<br>
-    1. Upload a person image. For multiple person images, we will only detect the biggest face. Make sure face is not too small and not significantly blocked or blurred.
-    2. (Optionally) upload another person image as reference pose. If not uploaded, we will use the first person image to extract landmarks. If you use a cropped face at step1, it is recommeneded to upload it to extract a new pose.
-    3. Enter a text prompt as done in normal text-to-image models.
-    4. Click the <b>Submit</b> button to start customizing.
-    5. Share your customizd photo with your friends, enjoy😊!
+    1. Upload an image with a face. For images with multiple faces, we will only detect the largest face. Ensure the face is not too small and is clearly visible without significant obstructions or blurring.
+    2. (Optional) You can upload another image as a reference for the face pose. If you don't, we will use the first detected face image to extract facial landmarks. If you use a cropped face at step 1, it is recommended to upload it to define a new face pose.
+    3. Enter a text prompt, as done in normal text-to-image models.
+    4. Click the <b>Submit</b> button to begin customization.
+    5. Share your customized photo with your friends and enjoy! 😊
     """
 
     article = r"""
@@ -298,8 +323,8 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
 
     tips = r"""
     ### Usage tips of InstantID
-    1. If you're not satisfied with the similarity, try to increase the weight of "IdentityNet Strength" and "Adapter Strength".
-    2. If you feel that the saturation is too high, first decrease the Adapter strength. If it is still too high, then decrease the IdentityNet strength.
+    1. If you're not satisfied with the similarity, try increasing the weight of "IdentityNet Strength" and "Adapter Strength."    
+    2. If you feel that the saturation is too high, first decrease the Adapter strength. If it remains too high, then decrease the IdentityNet strength.
     3. If you find that text control is not as expected, decrease Adapter strength.
     4. If you find that realistic style is not good enough, go for our Github repo and use a more realistic base model.
     """
@@ -317,23 +342,11 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
             with gr.Column():
                 
                 # upload face image
-                face_files = gr.Files(
-                            label="Upload a photo of your face",
-                            file_types=["image"]
-                        )
-                uploaded_faces = gr.Gallery(label="Your images", visible=False, columns=1, rows=1, height=512)
-                with gr.Column(visible=False) as clear_button_face:
-                    remove_and_reupload_faces = gr.ClearButton(value="Remove and upload new ones", components=face_files, size="sm")
-                
+                face_file = gr.Image(label="Upload a photo of your face", type="filepath")
+
                 # optional: upload a reference pose image
-                pose_files = gr.Files(
-                            label="Upload a reference pose image (optional)",
-                            file_types=["image"]
-                        )
-                uploaded_poses = gr.Gallery(label="Your images", visible=False, columns=1, rows=1, height=512)
-                with gr.Column(visible=False) as clear_button_pose:
-                    remove_and_reupload_poses = gr.ClearButton(value="Remove and upload new ones", components=pose_files, size="sm")
-                
+                pose_file = gr.Image(label="Upload a reference pose image (optional)", type="filepath")
+           
                 # prompt
                 prompt = gr.Textbox(label="Prompt",
                         info="Give simple prompt is enough to achieve good face fidelity",
@@ -342,6 +355,10 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                 
                 submit = gr.Button("Submit", variant="primary")
                 
+                enable_LCM = gr.Checkbox(
+                    label="Enable Fast Inference with LCM", value=enable_lcm_arg,
+                    info="LCM speeds up the inference step, the trade-off is the quality of the generated image. It performs better with portrait face images rather than distant faces",
+                )
                 style = gr.Dropdown(label="Style template", choices=STYLE_NAMES, value=DEFAULT_STYLE_NAME)
                 
                 # strength
@@ -371,14 +388,14 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                         minimum=20,
                         maximum=100,
                         step=1,
-                        value=30,
+                        value=5 if enable_lcm_arg else 30,
                     )
                     guidance_scale = gr.Slider(
                         label="Guidance scale",
                         minimum=0.1,
                         maximum=10.0,
                         step=0.1,
-                        value=5,
+                        value=0 if enable_lcm_arg else 5,
                     )
                     seed = gr.Slider(
                         label="Seed",
@@ -388,16 +405,11 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                         value=42,
                     )
                     randomize_seed = gr.Checkbox(label="Randomize seed", value=True)
+                    enhance_face_region = gr.Checkbox(label="Enhance non-face region", value=True)
 
             with gr.Column():
-                gallery = gr.Gallery(label="Generated Images")
+                gallery = gr.Image(label="Generated Images")
                 usage_tips = gr.Markdown(label="Usage tips of InstantID", value=tips ,visible=False)
-
-            face_files.upload(fn=swap_to_gallery, inputs=face_files, outputs=[uploaded_faces, clear_button_face, face_files])
-            pose_files.upload(fn=swap_to_gallery, inputs=pose_files, outputs=[uploaded_poses, clear_button_pose, pose_files])
-
-            remove_and_reupload_faces.click(fn=remove_back_to_files, outputs=[uploaded_faces, clear_button_face, face_files])
-            remove_and_reupload_poses.click(fn=remove_back_to_files, outputs=[uploaded_poses, clear_button_pose, pose_files])
 
             submit.click(
                 fn=remove_tips,
@@ -410,16 +422,19 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
                 api_name=False,
             ).then(
                 fn=generate_image,
-                inputs=[face_files, pose_files, prompt, negative_prompt, style, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed],
+                inputs=[face_file, pose_file, prompt, negative_prompt, style, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed, enable_LCM, enhance_face_region],
                 outputs=[gallery, usage_tips]
             )
         
+            enable_LCM.input(fn=toggle_lcm_ui, inputs=[enable_LCM], outputs=[num_steps, guidance_scale], queue=False)
+
         gr.Examples(
             examples=get_example(),
-            inputs=[face_files, prompt, style, negative_prompt],
+            inputs=[face_file, prompt, style, negative_prompt],
             run_on_click=True,
-            fn=upload_example_to_gallery,
-            outputs=[uploaded_faces, clear_button_face, face_files],
+            fn=run_for_examples,
+            outputs=[gallery, usage_tips],
+            cache_examples=True,
         )
         
         gr.Markdown(article)
@@ -428,9 +443,9 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8"):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--pretrained_model_name_or_path", type=str, default="wangqixun/YamerMIX_v8"
-    )
+    parser.add_argument("--pretrained_model_name_or_path", type=str, default="wangqixun/YamerMIX_v8")
+    parser.add_argument("--enable_LCM", type=bool, default=os.environ.get("ENABLE_LCM", False))
+
     args = parser.parse_args()
 
-    main(args.pretrained_model_name_or_path)
+    main(args.pretrained_model_name_or_path, args.enable_LCM)
