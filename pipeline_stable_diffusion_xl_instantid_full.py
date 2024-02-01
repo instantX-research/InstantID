@@ -1096,6 +1096,15 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
                                                                                   guess_mode=guess_mode,
                                                                                   added_cond_kwargs=controlnet_added_cond_kwargs,
                                                                                   return_dict=False)
+
+                        # controlnet mask
+                        if control_mask_wight_image_list is not None:
+                            down_block_res_samples = [
+                                down_block_res_sample * mask_weight
+                                for down_block_res_sample, mask_weight in zip(down_block_res_samples, control_mask_wight_image_list)
+                            ]
+                            mid_block_res_sample *= control_mask_wight_image_list[-1]
+
                         down_block_res_samples_list.append(down_block_res_samples)
                         mid_block_res_sample_list.append(mid_block_res_sample)
 
@@ -1114,13 +1123,13 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
                         return_dict=False,
                     )
 
-                # controlnet mask
-                if control_mask_wight_image_list is not None:
-                    down_block_res_samples = [
-                        down_block_res_sample * mask_weight
-                        for down_block_res_sample, mask_weight in zip(down_block_res_samples, control_mask_wight_image_list)
-                    ]
-                    mid_block_res_sample *= control_mask_wight_image_list[-1]
+                    # controlnet mask
+                    if control_mask_wight_image_list is not None:
+                        down_block_res_samples = [
+                            down_block_res_sample * mask_weight
+                            for down_block_res_sample, mask_weight in zip(down_block_res_samples, control_mask_wight_image_list)
+                        ]
+                        mid_block_res_sample *= control_mask_wight_image_list[-1]
 
                 if guess_mode and self.do_classifier_free_guidance:
                     # Infered ControlNet only for the conditional batch.
