@@ -23,6 +23,8 @@ InstantID is a new state-of-the-art tuning-free method to achieve ID-Preserving 
 <img src='assets/applications.png'>
 
 ## Release
+- [2024/02/01] 🔥 We have supported LCM acceleration and Multi-ControlNets on our [Huggingface Spaces Demo](https://huggingface.co/spaces/InstantX/InstantID)!
+- [2024/01/31] 🔥 [OneDiff](https://github.com/siliconflow/onediff?tab=readme-ov-file#easy-to-use) now supports accelerated inference for InstantID, check [this](https://github.com/siliconflow/onediff/blob/main/benchmarks/instant_id.py) for details!
 - [2024/01/23] 🔥 Our pipeline has been merged into [diffusers](https://github.com/huggingface/diffusers/blob/main/examples/community/pipeline_stable_diffusion_xl_instantid.py)!
 - [2024/01/22] 🔥 We release the [pre-trained checkpoints](https://huggingface.co/InstantX/InstantID), [inference code](https://github.com/InstantID/InstantID/blob/main/infer.py) and [gradio demo](https://huggingface.co/spaces/InstantX/InstantID)!
 - [2024/01/15] 🔥 We release the [technical report](https://arxiv.org/abs/2401.07519).
@@ -224,6 +226,7 @@ gradio_demo/app-multicontrolnet.py
 - Thanks to the [HuggingFace](https://github.com/huggingface) gradio team for their free GPU support!
 - Thanks to the [ModelScope](https://github.com/modelscope/modelscope) team for their free GPU support!
 - Thanks to the [OpenXLab](https://openxlab.org.cn/apps/detail/InstantX/InstantID) team for their free GPU support!
+- Thanks to [SiliconFlow](https://github.com/siliconflow) for their OneDiff integration of InstantID! 
 
 ## Disclaimer
 The code of InstantID is released under [Apache License](https://github.com/InstantID/InstantID?tab=Apache-2.0-1-ov-file#readme) for both academic and commercial usage. **However, both manual-downloading and auto-downloading face models from insightface are for non-commercial research purposes only** accoreding to their [license](https://github.com/deepinsight/insightface?tab=readme-ov-file#license). Users are granted the freedom to create images using this tool, but they are obligated to comply with local laws and utilize it responsibly. The developers will not assume any responsibility for potential misuse by users.
