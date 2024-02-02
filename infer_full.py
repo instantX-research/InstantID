@@ -5,9 +5,15 @@ from PIL import Image
 
 from diffusers.utils import load_image
 from diffusers.models import ControlNetModel
+from diffusers.pipelines.controlnet.multicontrolnet import MultiControlNetModel
 
 from insightface.app import FaceAnalysis
-from pipeline_stable_diffusion_xl_instantid import StableDiffusionXLInstantIDPipeline, draw_kps
+from pipeline_stable_diffusion_xl_instantid_full import StableDiffusionXLInstantIDPipeline, draw_kps
+
+from controlnet_aux import MidasDetector
+
+def convert_from_image_to_cv2(img: Image) -> np.ndarray:
+    return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
 def resize_img(input_image, max_side=1280, min_side=1024, size=None, 
                pad_to_max_side=False, mode=Image.BILINEAR, base_pixel_number=64):
@@ -42,10 +48,19 @@ if __name__ == "__main__":
     # Path to InstantID models
     face_adapter = f'./checkpoints/ip-adapter.bin'
     controlnet_path = f'./checkpoints/ControlNetModel'
+    controlnet_depth_path = f'diffusers/controlnet-depth-sdxl-1.0-small'
+    
+    # Load depth detector
+    midas = MidasDetector.from_pretrained("lllyasviel/Annotators")
 
     # Load pipeline
-    controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=torch.float16)
-
+    controlnet_list = [controlnet_path, controlnet_depth_path]
+    controlnet_model_list = []
+    for controlnet_path in controlnet_list:
+        controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=torch.float16)
+        controlnet_model_list.append(controlnet)
+    controlnet = MultiControlNetModel(controlnet_model_list)
+    
     base_model_path = 'stabilityai/stable-diffusion-xl-base-1.0'
 
     pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
@@ -66,14 +81,36 @@ if __name__ == "__main__":
     face_info = app.get(cv2.cvtColor(np.array(face_image), cv2.COLOR_RGB2BGR))
     face_info = sorted(face_info, key=lambda x:(x['bbox'][2]-x['bbox'][0])*x['bbox'][3]-x['bbox'][1])[-1] # only use the maximum face
     face_emb = face_info['embedding']
-    face_kps = draw_kps(face_image, face_info['kps'])
+
+    # use another reference image
+    pose_image = load_image("./examples/poses/pose.jpg")
+    pose_image = resize_img(pose_image)
+
+    face_info = app.get(cv2.cvtColor(np.array(pose_image), cv2.COLOR_RGB2BGR))
+    pose_image_cv2 = convert_from_image_to_cv2(pose_image)
+    face_info = sorted(face_info, key=lambda x:(x['bbox'][2]-x['bbox'][0])*x['bbox'][3]-x['bbox'][1])[-1] # only use the maximum face
+    face_kps = draw_kps(pose_image, face_info['kps'])
+
+    width, height = face_kps.size
+
+    # use depth control
+    processed_image_midas = midas(pose_image)
+    processed_image_midas = processed_image_midas.resize(pose_image.size)
+    
+    # enhance face region
+    control_mask = np.zeros([height, width, 3])
+    x1, y1, x2, y2 = face_info["bbox"]
+    x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+    control_mask[y1:y2, x1:x2] = 255
+    control_mask = Image.fromarray(control_mask.astype(np.uint8))
 
     image = pipe(
         prompt=prompt,
         negative_prompt=n_prompt,
         image_embeds=face_emb,
-        image=face_kps,
-        controlnet_conditioning_scale=0.8,
+        control_mask=control_mask,
+        image=[face_kps, processed_image_midas],
+        controlnet_conditioning_scale=[0.8,0.8],
         ip_adapter_scale=0.8,
         num_inference_steps=30,
         guidance_scale=5,
