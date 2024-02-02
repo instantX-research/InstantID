@@ -38,6 +38,7 @@ from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipelineOut
 from diffusers import StableDiffusionXLControlNetPipeline
 from diffusers.pipelines.controlnet.multicontrolnet import MultiControlNetModel
 from diffusers.utils.import_utils import is_xformers_available
+from diffusers.utils.torch_utils import randn_tensor
 
 from ip_adapter.resampler import Resampler
 from ip_adapter.utils import is_torch2_available
@@ -133,6 +134,19 @@ def draw_kps(image_pil, kps, color_list=[(255,0,0), (0,255,0), (0,0,255), (255,2
     out_img_pil = PIL.Image.fromarray(out_img.astype(np.uint8))
     return out_img_pil
     
+# Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_img2img.retrieve_latents
+def retrieve_latents(
+    encoder_output: torch.Tensor, generator: Optional[torch.Generator] = None, sample_mode: str = "sample"
+):
+    if hasattr(encoder_output, "latent_dist") and sample_mode == "sample":
+        return encoder_output.latent_dist.sample(generator)
+    elif hasattr(encoder_output, "latent_dist") and sample_mode == "argmax":
+        return encoder_output.latent_dist.mode()
+    elif hasattr(encoder_output, "latents"):
+        return encoder_output.latents
+    else:
+        raise AttributeError("Could not access latents of provided encoder_output")
+    
 class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
     
     def cuda(self, dtype=torch.float16, use_xformers=False):
@@ -224,6 +238,7 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
         else:
             prompt_image_emb = torch.tensor(prompt_image_emb)
             
+        prompt_image_emb = prompt_image_emb.to(device=device, dtype=dtype)
         prompt_image_emb = prompt_image_emb.reshape([1, -1, self.image_proj_model_in_features])
         
         if do_classifier_free_guidance:
@@ -231,16 +246,88 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
         else:
             prompt_image_emb = torch.cat([prompt_image_emb], dim=0)
         
-        prompt_image_emb = prompt_image_emb.to(device=self.image_proj_model.latents.device, 
-                                               dtype=self.image_proj_model.latents.dtype)
         prompt_image_emb = self.image_proj_model(prompt_image_emb)
 
         bs_embed, seq_len, _ = prompt_image_emb.shape
         prompt_image_emb = prompt_image_emb.repeat(1, num_images_per_prompt, 1)
         prompt_image_emb = prompt_image_emb.view(bs_embed * num_images_per_prompt, seq_len, -1)
         
-        return prompt_image_emb.to(device=device, dtype=dtype)
+        return prompt_image_emb
 
+    def prepare_latents(
+        self, image, timestep, batch_size, num_channels_latents, height, width, num_images_per_prompt, dtype, device, generator=None, add_noise=None
+    ):
+        if image is None:
+            shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)
+            image = randn_tensor(shape, generator=generator, device=device, dtype=dtype)
+            image = image * self.scheduler.init_noise_sigma
+        else:
+            image = image.to(device=device, dtype=dtype)
+
+        # Offload text encoder if `enable_model_cpu_offload` was enabled
+        if hasattr(self, "final_offload_hook") and self.final_offload_hook is not None:
+            self.text_encoder_2.to("cpu")
+            torch.cuda.empty_cache()
+
+        batch_size = batch_size * num_images_per_prompt
+
+        if image.shape[1] == 4:
+            init_latents = image
+        else:
+            # make sure the VAE is in float32 mode, as it overflows in float16
+            if self.vae.config.force_upcast:
+                image = image.float()
+                self.vae.to(dtype=torch.float32)
+
+            if isinstance(generator, list) and len(generator) != batch_size:
+                raise ValueError(
+                    f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
+                    f" size of {batch_size}. Make sure the batch size matches the length of the generators."
+                )
+
+            elif isinstance(generator, list):
+                init_latents = [
+                    retrieve_latents(self.vae.encode(image[i : i + 1]), generator=generator[i])
+                    for i in range(batch_size)
+                ]
+                init_latents = torch.cat(init_latents, dim=0)
+            else:
+                init_latents = retrieve_latents(self.vae.encode(image), generator=generator)
+
+            if self.vae.config.force_upcast:
+                self.vae.to(dtype)
+
+            init_latents = init_latents.to(dtype)
+            init_latents = self.vae.config.scaling_factor * init_latents
+
+        if batch_size > init_latents.shape[0] and batch_size % init_latents.shape[0] == 0:
+            # expand init_latents for batch_size
+            additional_image_per_prompt = batch_size // init_latents.shape[0]
+            init_latents = torch.cat([init_latents] * additional_image_per_prompt, dim=0)
+        elif batch_size > init_latents.shape[0] and batch_size % init_latents.shape[0] != 0:
+            raise ValueError(
+                f"Cannot duplicate `image` of batch size {init_latents.shape[0]} to {batch_size} text prompts."
+            )
+        else:
+            init_latents = torch.cat([init_latents], dim=0)
+
+        if add_noise:
+            shape = init_latents.shape
+            noise = randn_tensor(shape, generator=generator, device=device, dtype=dtype)
+            # get latents
+            init_latents = self.scheduler.add_noise(init_latents, noise, timestep)
+
+        latents = init_latents
+
+        return latents
+    
+    def get_timesteps(self, num_inference_steps, strength=None):
+        strength = 1.0 if strength is None else 1.0 - strength
+        init_timestep = min(int(num_inference_steps * strength), num_inference_steps)
+        t_start = max(num_inference_steps - init_timestep, 0)
+        timesteps = self.scheduler.timesteps[t_start * self.scheduler.order :]
+        return timesteps, num_inference_steps - t_start
+    
     @torch.no_grad()
     @replace_example_docstring(EXAMPLE_DOC_STRING)
     def __call__(
@@ -248,6 +335,8 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
         prompt: Union[str, List[str]] = None,
         prompt_2: Optional[Union[str, List[str]]] = None,
         image: PipelineImageInput = None,
+        visual_prompt: Optional[PIL.Image.Image] = None,
+        visual_prompt_strength: Optional[float] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
         num_inference_steps: int = 50,
@@ -302,6 +391,10 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
                 and/or width are passed, `image` is resized accordingly. If multiple ControlNets are specified in
                 `init`, images must be passed as a list such that each element of the list can be correctly batched for
                 input to a single ControlNet.
+            visual_prompt (`PIL.Image.Image`, *optional*):
+                The image for visual prompt. It will help determine the overall color palette and style of the image.
+            visual_prompt_strength (`float`, *optional*):
+                The strength of visual prompt image. Recommended values: 0.05 - 0.3.
             height (`int`, *optional*, defaults to `self.unet.config.sample_size * self.vae_scale_factor`):
                 The height in pixels of the generated image. Anything below 512 pixels won't work well for
                 [stabilityai/stable-diffusion-xl-base-1.0](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0)
@@ -564,21 +657,29 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
             assert False
 
         # 5. Prepare timesteps
-        self.scheduler.set_timesteps(num_inference_steps, device=device)
-        timesteps = self.scheduler.timesteps
+        self.scheduler.set_timesteps(num_inference_steps, device=device, **kwargs)
+        visual_prompt_strength = None if visual_prompt is None else visual_prompt_strength
+        timesteps, num_inference_steps = self.get_timesteps(
+            num_inference_steps,
+            visual_prompt_strength,
+        )
         self._num_timesteps = len(timesteps)
 
         # 6. Prepare latent variables
         num_channels_latents = self.unet.config.in_channels
+        visual_prompt = self.image_processor.preprocess(visual_prompt) if visual_prompt is not None else None
         latents = self.prepare_latents(
-            batch_size * num_images_per_prompt,
+            visual_prompt,
+            timesteps[:1].repeat(batch_size * num_images_per_prompt),
+            batch_size,
             num_channels_latents,
             height,
             width,
+            num_images_per_prompt,
             prompt_embeds.dtype,
             device,
             generator,
-            latents,
+            (visual_prompt is not None) and (visual_prompt_strength is not None) ,
         )
 
         # 6.5 Optionally get Guidance Scale Embedding

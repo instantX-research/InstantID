@@ -1,8 +1,6 @@
 import sys
 sys.path.append('./')
 
-from typing import Tuple
-
 import os
 import cv2
 import math
@@ -148,7 +146,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
         return case
 
     def run_for_examples(face_file, prompt, style, negative_prompt):
-        return generate_image(face_file, None, prompt, negative_prompt, style, 30, 0.8, 0.8, 5, 42, False, True)
+        return generate_image(face_file, None, None, prompt, negative_prompt, style, 30, 0.8, 0.8, 5, 42, False, True, None)
 
     def convert_from_cv2_to_image(img: np.ndarray) -> Image:
         return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
@@ -207,11 +205,11 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
                 input_image = Image.fromarray(res)
             return input_image
 
-    def apply_style(style_name: str, positive: str, negative: str = "") -> Tuple[str, str]:
+    def apply_style(style_name: str, positive: str, negative: str = "") -> tuple[str, str]:
         p, n = styles.get(style_name, styles[DEFAULT_STYLE_NAME])
         return p.replace("{prompt}", positive), n + ' ' + negative
 
-    def generate_image(face_image_path, pose_image_path, prompt, negative_prompt, style_name, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed, enable_LCM, enhance_face_region, progress=gr.Progress(track_tqdm=True)):
+    def generate_image(face_image_path, pose_image_path, visual_prompt_path, prompt, negative_prompt, style_name, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed, enable_LCM, enhance_face_region, visual_prompt_strength, progress=gr.Progress(track_tqdm=True)):
         if enable_LCM:
             pipe.enable_lora()
             pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
@@ -266,6 +264,12 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
             control_mask = Image.fromarray(control_mask.astype(np.uint8))
         else:
             control_mask = None
+
+        if visual_prompt_path is not None:
+            visual_prompt = load_image(visual_prompt_path)
+            visual_prompt = resize_img(visual_prompt, size=(width, height))
+        else:
+            visual_prompt = None
                         
         generator = torch.Generator(device=device).manual_seed(seed)
         
@@ -280,6 +284,8 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
             image=face_kps,
             control_mask=control_mask,
             controlnet_conditioning_scale=float(identitynet_strength_ratio),
+            visual_prompt=visual_prompt,
+            visual_prompt_strength=visual_prompt_strength,
             num_inference_steps=num_steps,
             guidance_scale=guidance_scale,
             height=height,
@@ -300,9 +306,10 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
     How to use:<br>
     1. Upload an image with a face. For images with multiple faces, we will only detect the largest face. Ensure the face is not too small and is clearly visible without significant obstructions or blurring.
     2. (Optional) You can upload another image as a reference for the face pose. If you don't, we will use the first detected face image to extract facial landmarks. If you use a cropped face at step 1, it is recommended to upload it to define a new face pose.
-    3. Enter a text prompt, as done in normal text-to-image models.
-    4. Click the <b>Submit</b> button to begin customization.
-    5. Share your customized photo with your friends and enjoy! 😊
+    3. (Optional) You can upload another image as a visual prompt. It will help determine the overall color palette and style of the image.
+    4. Enter a text prompt, as done in normal text-to-image models.
+    5. Click the <b>Submit</b> button to begin customization.
+    6. Share your customized photo with your friends and enjoy! 😊
     """
 
     article = r"""
@@ -348,6 +355,9 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
 
                 # optional: upload a reference pose image
                 pose_file = gr.Image(label="Upload a reference pose image (optional)", type="filepath")
+
+                # optional: upload a reference pose image
+                visual_file = gr.Image(label="Upload a visual prompt image (optional)", type="filepath")
            
                 # prompt
                 prompt = gr.Textbox(label="Prompt",
@@ -399,6 +409,13 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
                         step=0.1,
                         value=0 if enable_lcm_arg else 5,
                     )
+                    visual_prompt_strength = gr.Slider(
+                        label="Visual Prompt Strength",
+                        minimum=0,
+                        maximum=0.5,
+                        step=0.01,
+                        value=0.05,
+                    )
                     seed = gr.Slider(
                         label="Seed",
                         minimum=0,
@@ -424,7 +441,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
                 api_name=False,
             ).then(
                 fn=generate_image,
-                inputs=[face_file, pose_file, prompt, negative_prompt, style, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed, enable_LCM, enhance_face_region],
+                inputs=[face_file, pose_file, visual_file, prompt, negative_prompt, style, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed, enable_LCM, enhance_face_region, visual_prompt_strength],
                 outputs=[gallery, usage_tips]
             )
         

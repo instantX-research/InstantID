@@ -38,6 +38,11 @@ InstantID is a new state-of-the-art tuning-free method to achieve ID-Preserving 
   <img src="assets/0.png">
 </p>
 
+With prompt images
+<p align="center">
+  <img src="assets/visual_prompts_example.png">
+</p>
+
 ### Comparison with Previous Works
 
 <p align="center">
@@ -163,6 +168,29 @@ image = pipe(
 To save VRAM, you can enable CPU offloading
 ```python
 pipe.enable_model_cpu_offload()
+```
+
+## Using visual prompt 
+It will help determine the overall color palette and style of the image.
+```python
+# Load and resize image for visual prompt (the size should be the same as face_image)
+visual_prompt = load_image("./examples/visual_prompts/boke.jpg")
+face_w, face_h = face_image.size
+visual_prompt = visual_prompt.resize((face_w, face_h))
+
+# generate image
+image = pipe(
+    prompt,
+    negative_prompt=negative_prompt,
+    image_embeds=face_emb,
+    image=face_kps,
+    visual_prompt=visual_prompt,
+    visual_prompt_strength=0.1,  # visual prompt strength gives best result in range (0.05 - 0.3)
+    num_inference_steps=30,
+    num_images_per_prompt=1,
+    controlnet_conditioning_scale=0.8,
+    ip_adapter_scale=0.8,
+).images[0]
 ```
 
 ## Speed Up with LCM-LoRA
