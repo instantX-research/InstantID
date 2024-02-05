@@ -1206,4 +1206,3 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
             return (image,)
 
         return StableDiffusionXLPipelineOutput(images=image)
-    
