@@ -4,63 +4,41 @@
 import os
 import sys
 
-import time
-import subprocess
-from typing import List
-
-from cog import BasePredictor, Input, Path
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.append(os.path.join(os.path.dirname(__file__), "../gradio_demo"))
 
 import cv2
-import PIL
+import time
 import torch
+import subprocess
 import numpy as np
+from typing import List
+from cog import BasePredictor, Input, Path
+
+import PIL
 from PIL import Image
 
+import diffusers
+from diffusers import LCMScheduler
 from diffusers.utils import load_image
 from diffusers.models import ControlNetModel
+from diffusers.pipelines.controlnet.multicontrolnet import MultiControlNetModel
 
+from model_util import get_torch_device
 from insightface.app import FaceAnalysis
+from transformers import CLIPImageProcessor
+from controlnet_util import openpose, get_depth_map, get_canny_image
 
-sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+from pipeline_stable_diffusion_xl_instantid_full import (
+    StableDiffusionXLInstantIDPipeline,
+)
+from diffusers.pipelines.stable_diffusion.safety_checker import (
+    StableDiffusionSafetyChecker,
+)
 from pipeline_stable_diffusion_xl_instantid import (
     StableDiffusionXLInstantIDPipeline,
     draw_kps,
 )
-
-from diffusers.pipelines.stable_diffusion.safety_checker import (
-    StableDiffusionSafetyChecker,
-)
-from transformers import CLIPImageProcessor
-
-
-import os
-import cv2
-import torch
-import numpy as np
-
-import PIL
-from PIL import Image
-
-import diffusers
-from diffusers.utils import load_image
-from diffusers.models import ControlNetModel
-from diffusers import LCMScheduler
-
-
-from insightface.app import FaceAnalysis
-
-sys.path.append(os.path.join(os.path.dirname(__file__), "../gradio_demo"))
-from pipeline_stable_diffusion_xl_instantid_full import (
-    StableDiffusionXLInstantIDPipeline,
-)
-from model_util import get_torch_device
-from controlnet_util import openpose, get_depth_map, get_canny_image
-
-
-import diffusers
-from diffusers.utils import load_image
-from diffusers.models import ControlNetModel
-from diffusers.pipelines.controlnet.multicontrolnet import MultiControlNetModel
 
 # GPU global variables
 DEVICE = get_torch_device()
@@ -199,9 +177,9 @@ def resize_img(
         res = np.ones([max_side, max_side, 3], dtype=np.uint8) * 255
         offset_x = (max_side - w_resize_new) // 2
         offset_y = (max_side - h_resize_new) // 2
-        res[
-            offset_y : offset_y + h_resize_new, offset_x : offset_x + w_resize_new
-        ] = np.array(input_image)
+        res[offset_y : offset_y + h_resize_new, offset_x : offset_x + w_resize_new] = (
+            np.array(input_image)
+        )
         input_image = Image.fromarray(res)
     return input_image
 
@@ -210,7 +188,7 @@ def download_weights(url, dest):
     start = time.time()
     print("downloading url: ", url)
     print("downloading to: ", dest)
-    subprocess.check_call(["pget", "-x", url, dest], close_fds=False)
+    subprocess.check_call(["pget", "-x", "-v", url, dest], close_fds=False)
     print("downloading took: ", time.time() - start)
 
 
