@@ -82,7 +82,7 @@ controlnet_map_fn = {
 }
 
 
-def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=False):
+def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=False, server_name_arg=None, server_port_arg=None):
     if pretrained_model_name_or_path.endswith(
         ".ckpt"
     ) or pretrained_model_name_or_path.endswith(".safetensors"):
@@ -473,7 +473,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
 
     tips = r"""
     ### Usage tips of InstantID
-    1. If you're not satisfied with the similarity, try increasing the weight of "IdentityNet Strength" and "Adapter Strength."    
+    1. If you're not satisfied with the similarity, try increasing the weight of "IdentityNet Strength" and "Adapter Strength."
     2. If you feel that the saturation is too high, first decrease the Adapter strength. If it remains too high, then decrease the IdentityNet strength.
     3. If you find that text control is not as expected, decrease Adapter strength.
     4. If you find that realistic style is not good enough, go for our Github repo and use a more realistic base model.
@@ -659,7 +659,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
 
         gr.Markdown(article)
 
-    demo.launch()
+    demo.launch(server_name=server_name_arg, server_port=server_port_arg)
 
 
 if __name__ == "__main__":
@@ -670,6 +670,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--enable_LCM", type=bool, default=os.environ.get("ENABLE_LCM", False)
     )
+    parser.add_argument(
+        "--server-name", type=str, default=os.environ.get("GRADIO_SERVER_NAME", None)
+    )
+    parser.add_argument(
+        "--server-port", type=int, default=os.environ.get("GRADIO_SERVER_PORT", None)
+    )
     args = parser.parse_args()
 
-    main(args.pretrained_model_name_or_path, args.enable_LCM)
+    main(args.pretrained_model_name_or_path, args.enable_LCM, args.server_name, args.server_port)

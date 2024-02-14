@@ -48,7 +48,7 @@ controlnet_path = f'./checkpoints/ControlNetModel'
 # Load pipeline
 controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=dtype)
 
-def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=False):
+def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=False, server_name_arg=None, server_port_arg=None):
 
     if pretrained_model_name_or_path.endswith(
             ".ckpt"
@@ -103,12 +103,12 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
                 gr.update(minimum=5, maximum=100, step=1, value=30),
                 gr.update(minimum=0.1, maximum=20.0, step=0.1, value=5)
             )
-    
+
     def randomize_seed_fn(seed: int, randomize_seed: bool) -> int:
         if randomize_seed:
             seed = random.randint(0, MAX_SEED)
         return seed
-    
+
     def remove_tips():
         return gr.update(visible=False)
 
@@ -184,7 +184,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
         out_img_pil = Image.fromarray(out_img.astype(np.uint8))
         return out_img_pil
 
-    def resize_img(input_image, max_side=1280, min_side=1024, size=None, 
+    def resize_img(input_image, max_side=1280, min_side=1024, size=None,
                 pad_to_max_side=False, mode=PIL.Image.BILINEAR, base_pixel_number=64):
 
             w, h = input_image.size
@@ -218,44 +218,44 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
         else:
             pipe.disable_lora()
             pipe.scheduler = diffusers.EulerDiscreteScheduler.from_config(pipe.scheduler.config)
-    
+
         if face_image_path is None:
             raise gr.Error(f"Cannot find any input face image! Please upload the face image")
-        
+
         if prompt is None:
             prompt = "a person"
-        
+
         # apply the style template
         prompt, negative_prompt = apply_style(style_name, prompt, negative_prompt)
-        
+
         face_image = load_image(face_image_path)
         face_image = resize_img(face_image)
         face_image_cv2 = convert_from_image_to_cv2(face_image)
         height, width, _ = face_image_cv2.shape
-        
+
         # Extract face features
         face_info = app.get(face_image_cv2)
-        
+
         if len(face_info) == 0:
             raise gr.Error(f"Cannot find any face in the image! Please upload another person image")
-        
+
         face_info = sorted(face_info, key=lambda x:(x['bbox'][2]-x['bbox'][0])*x['bbox'][3]-x['bbox'][1])[-1]  # only use the maximum face
         face_emb = face_info['embedding']
         face_kps = draw_kps(convert_from_cv2_to_image(face_image_cv2), face_info['kps'])
-        
+
         if pose_image_path is not None:
             pose_image = load_image(pose_image_path)
             pose_image = resize_img(pose_image)
             pose_image_cv2 = convert_from_image_to_cv2(pose_image)
-            
+
             face_info = app.get(pose_image_cv2)
-            
+
             if len(face_info) == 0:
                 raise gr.Error(f"Cannot find any face in the reference image! Please upload another person image")
-            
+
             face_info = face_info[-1]
             face_kps = draw_kps(pose_image, face_info['kps'])
-            
+
             width, height = face_kps.size
 
         if enhance_face_region:
@@ -266,12 +266,12 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
             control_mask = Image.fromarray(control_mask.astype(np.uint8))
         else:
             control_mask = None
-                        
+
         generator = torch.Generator(device=device).manual_seed(seed)
-        
+
         print("Start inference...")
         print(f"[Debug] Prompt: {prompt}, \n[Debug] Neg Prompt: {negative_prompt}")
-        
+
         pipe.set_ip_adapter_scale(adapter_strength_ratio)
         images = pipe(
             prompt=prompt,
@@ -325,7 +325,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
 
     tips = r"""
     ### Usage tips of InstantID
-    1. If you're not satisfied with the similarity, try increasing the weight of "IdentityNet Strength" and "Adapter Strength."    
+    1. If you're not satisfied with the similarity, try increasing the weight of "IdentityNet Strength" and "Adapter Strength."
     2. If you feel that the saturation is too high, first decrease the Adapter strength. If it remains too high, then decrease the IdentityNet strength.
     3. If you find that text control is not as expected, decrease Adapter strength.
     4. If you find that realistic style is not good enough, go for our Github repo and use a more realistic base model.
@@ -342,27 +342,27 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
 
         with gr.Row():
             with gr.Column():
-                
+
                 # upload face image
                 face_file = gr.Image(label="Upload a photo of your face", type="filepath")
 
                 # optional: upload a reference pose image
                 pose_file = gr.Image(label="Upload a reference pose image (optional)", type="filepath")
-           
+
                 # prompt
                 prompt = gr.Textbox(label="Prompt",
                         info="Give simple prompt is enough to achieve good face fidelity",
                         placeholder="A photo of a person",
                         value="")
-                
+
                 submit = gr.Button("Submit", variant="primary")
-                
+
                 enable_LCM = gr.Checkbox(
                     label="Enable Fast Inference with LCM", value=enable_lcm_arg,
                     info="LCM speeds up the inference step, the trade-off is the quality of the generated image. It performs better with portrait face images rather than distant faces",
                 )
                 style = gr.Dropdown(label="Style template", choices=STYLE_NAMES, value=DEFAULT_STYLE_NAME)
-                
+
                 # strength
                 identitynet_strength_ratio = gr.Slider(
                     label="IdentityNet strength (for fidelity)",
@@ -378,14 +378,14 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
                     step=0.05,
                     value=0.80,
                 )
-                
+
                 with gr.Accordion(open=False, label="Advanced Options"):
                     negative_prompt = gr.Textbox(
-                        label="Negative Prompt", 
+                        label="Negative Prompt",
                         placeholder="low quality",
                         value="(lowres, low quality, worst quality:1.2), (text:1.2), watermark, (frame:1.2), deformed, ugly, deformed eyes, blur, out of focus, blurry, deformed cat, deformed, photo, anthropomorphic cat, monochrome, pet collar, gun, weapon, blue, 3d, drones, drone, buildings in background, green",
                     )
-                    num_steps = gr.Slider( 
+                    num_steps = gr.Slider(
                         label="Number of sample steps",
                         minimum=20,
                         maximum=100,
@@ -415,7 +415,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
 
             submit.click(
                 fn=remove_tips,
-                outputs=usage_tips,            
+                outputs=usage_tips,
             ).then(
                 fn=randomize_seed_fn,
                 inputs=[seed, randomize_seed],
@@ -427,7 +427,7 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
                 inputs=[face_file, pose_file, prompt, negative_prompt, style, num_steps, identitynet_strength_ratio, adapter_strength_ratio, guidance_scale, seed, enable_LCM, enhance_face_region],
                 outputs=[gallery, usage_tips]
             )
-        
+
             enable_LCM.input(fn=toggle_lcm_ui, inputs=[enable_LCM], outputs=[num_steps, guidance_scale], queue=False)
 
         gr.Examples(
@@ -438,16 +438,18 @@ def main(pretrained_model_name_or_path="wangqixun/YamerMIX_v8", enable_lcm_arg=F
             outputs=[gallery, usage_tips],
             cache_examples=True,
         )
-        
+
         gr.Markdown(article)
 
-    demo.launch()
+    demo.launch(server_name=server_name_arg, server_port=server_port_arg)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--pretrained_model_name_or_path", type=str, default="wangqixun/YamerMIX_v8")
     parser.add_argument("--enable_LCM", type=bool, default=os.environ.get("ENABLE_LCM", False))
+    parser.add_argument("--server-name", type=str, default=os.environ.get("GRADIO_SERVER_NAME", None))
+    parser.add_argument("--server-port", type=int, default=os.environ.get("GRADIO_SERVER_PORT", None))
 
     args = parser.parse_args()
 
-    main(args.pretrained_model_name_or_path, args.enable_LCM)
+    main(args.pretrained_model_name_or_path, args.enable_LCM, args.server_name, args.server_port)
