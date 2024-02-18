@@ -219,6 +219,7 @@ gradio_demo/app-multicontrolnet.py
 - [Mikubill/sd-webui-controlnet](https://github.com/Mikubill/sd-webui-controlnet/discussions/2589)
 
 ### ComfyUI
+- [cubiq/ComfyUI_InstantID](https://github.com/cubiq/ComfyUI_InstantID)
 - [ZHO-ZHO-ZHO/ComfyUI-InstantID](https://github.com/ZHO-ZHO-ZHO/ComfyUI-InstantID)
 - [huxiuhan/ComfyUI-InstantID](https://github.com/huxiuhan/ComfyUI-InstantID)
 
