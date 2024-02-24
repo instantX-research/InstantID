@@ -1,6 +1,6 @@
 from huggingface_hub import hf_hub_download
 import gdown
-import os
+import shutil
 
 # download models
 hf_hub_download(
@@ -22,6 +22,7 @@ hf_hub_download(
     local_dir="./checkpoints",
 )
 # download antelopev2
-gdown.download(url="https://drive.google.com/file/d/18wEUfMNohBJ4K3Ly5wpTejPfDzp-8fI8/view?usp=sharing", output="./models/", quiet=False, fuzzy=True)
+gdown.download(url="https://drive.google.com/file/d/18wEUfMNohBJ4K3Ly5wpTejPfDzp-8fI8/view?usp=sharing", output="./models/antelopev2.zip", quiet=False, fuzzy=True)
+
 # unzip antelopev2.zip
-os.system("unzip ./models/antelopev2.zip -d ./models/")
+shutil.unpack_archive("./models/antelopev2.zip", "./models/")
