@@ -2,11 +2,11 @@
 from diffusers.utils import load_image
 from diffusers.models import ControlNetModel
 from diffusers import LCMScheduler
+import math
 import cv2
 import torch
 import numpy as np
 from PIL import Image
-
 from insightface.app import FaceAnalysis
 from pipeline_stable_diffusion_xl_instantid import draw_kps
 from pipeline_stable_diffusion_xl_instantid_inpaint import StableDiffusionXLInstantIDInpaintPipeline
@@ -46,7 +46,7 @@ def prepare_average_embeding(face_list):
       face_emb = face_info['embedding']
       face_emebdings.append(face_emb)
 
-    return sum(face_emebdings) / len(face_emebdings)
+    return np.concatenate(face_emebdings)
 
 def prepareMaskAndPoseAndControlImage(pose_image, face_info, padding = 50, mask_grow = 20, resize = True):
     if padding < mask_grow:
@@ -108,7 +108,7 @@ if __name__ == '__main__':
     controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=torch.float16)
 
     # LCM Lora path ( https://huggingface.co/latent-consistency/lcm-lora-sdxl )
-    adapter_id = 'loras/pytorch_lora_weights.safetensors'
+    lora = f'loras/pytorch_lora_weights.safetensors'
 
     # You can use any base XL model (do not use models for inpainting!)
     base_model_path = 'stabilityai/stable-diffusion-xl-base-1.0'
@@ -116,7 +116,7 @@ if __name__ == '__main__':
     pipe = StableDiffusionXLInstantIDInpaintPipeline.from_pretrained(
         base_model_path,
         controlnet=controlnet,
-        torch_dtype=torch.float16,
+        torch_dtype=torch.float16
     )
     pipe.cuda()
 
@@ -124,7 +124,7 @@ if __name__ == '__main__':
 
     # load adapter
     pipe.load_ip_adapter_instantid(face_adapter)
-    pipe.load_lora_weights(adapter_id)
+    pipe.load_lora_weights(lora)
     pipe.fuse_lora()
 
     # prepare images
@@ -149,6 +149,8 @@ if __name__ == '__main__':
     # negative_prompt is used only when guidance_scale > 1
     # https://huggingface.co/docs/diffusers/api/pipelines/controlnet_sdxl
     negative_prompt = '(lowres, low quality, worst quality:1.2), (text:1.2), watermark, painting, drawing, illustration, glitch, deformed, mutated, cross-eyed, ugly, disfigured (lowres, low quality, worst quality:1.2), (text:1.2), watermark, painting, drawing, illustration, glitch,deformed, mutated, cross-eyed, ugly, disfigured'
+    steps = 3
+    mask_strength = 0.7 # values between 0 - 1
 
     image = pipe(
         prompt=prompt,
@@ -157,9 +159,10 @@ if __name__ == '__main__':
         control_image=control_image,
         image=pose_image_preprocessed,
         mask_image=mask,
-        controlnet_conditioning_scale=0.6,
+        controlnet_conditioning_scale=0.8,
+        strength=mask_strength,
         ip_adapter_scale=0.3, # keep it low
-        num_inference_steps=11,
+        num_inference_steps=int(math.ceil(steps / mask_strength)),
         guidance_scale=0.0
     ).images[0]
 
