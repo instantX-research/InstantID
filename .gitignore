@@ -164,3 +164,5 @@ models/
 
 # Cog
 .cog
+
+gradio_cached_examples
