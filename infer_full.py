@@ -79,7 +79,7 @@ if __name__ == "__main__":
     face_image = resize_img(face_image)
 
     face_info = app.get(cv2.cvtColor(np.array(face_image), cv2.COLOR_RGB2BGR))
-    face_info = sorted(face_info, key=lambda x:(x['bbox'][2]-x['bbox'][0])*x['bbox'][3]-x['bbox'][1])[-1] # only use the maximum face
+    face_info = sorted(face_info, key=lambda x:(x['bbox'][2]-x['bbox'][0])*(x['bbox'][3]-x['bbox'][1]))[-1] # only use the maximum face
     face_emb = face_info['embedding']
 
     # use another reference image
@@ -88,7 +88,7 @@ if __name__ == "__main__":
 
     face_info = app.get(cv2.cvtColor(np.array(pose_image), cv2.COLOR_RGB2BGR))
     pose_image_cv2 = convert_from_image_to_cv2(pose_image)
-    face_info = sorted(face_info, key=lambda x:(x['bbox'][2]-x['bbox'][0])*x['bbox'][3]-x['bbox'][1])[-1] # only use the maximum face
+    face_info = sorted(face_info, key=lambda x:(x['bbox'][2]-x['bbox'][0])*(x['bbox'][3]-x['bbox'][1]))[-1] # only use the maximum face
     face_kps = draw_kps(pose_image, face_info['kps'])
 
     width, height = face_kps.size
