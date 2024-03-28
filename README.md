@@ -99,6 +99,10 @@ For face encoder, you need to manually download via this [URL](https://github.co
 
 ## Usage
 
+If you want to reproduce the effect in the paper, please refer to the code in [infer_full.py](infer_full.py). 
+If you want to quickly experience the basic effects, please refer to the code in [infer.py](infer.py). 
+The following code👇 comes from [infer.py](infer.py). 
+
 ```python
 # !pip install opencv-python transformers accelerate insightface
 import diffusers
