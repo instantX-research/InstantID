@@ -166,3 +166,4 @@ models/
 .cog
 
 gradio_cached_examples
+*.ipynb
