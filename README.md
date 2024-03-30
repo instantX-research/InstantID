@@ -250,6 +250,9 @@ The code of InstantID is released under [Apache License](https://github.com/Inst
 [![Star History Chart](https://api.star-history.com/svg?repos=InstantID/InstantID&type=Date)](https://star-history.com/#InstantID/InstantID&Date)
 
 
+## Sponsor Us
+If you find this project useful, you can buy us a coffee via Github Sponsor! We support [Paypal](ko-fi.com/instantx) and [WeChat Pay](https://tinyurl.com/instantx-pay).
+
 ## Cite
 If you find InstantID useful for your research and applications, please cite us using this BibTeX:
 
