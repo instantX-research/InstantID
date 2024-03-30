@@ -251,7 +251,7 @@ The code of InstantID is released under [Apache License](https://github.com/Inst
 
 
 ## Sponsor Us
-If you find this project useful, you can buy us a coffee via Github Sponsor! We support [Paypal](ko-fi.com/instantx) and [WeChat Pay](https://tinyurl.com/instantx-pay).
+If you find this project useful, you can buy us a coffee via Github Sponsor! We support [Paypal](https://ko-fi.com/instantx) and [WeChat Pay](https://tinyurl.com/instantx-pay).
 
 ## Cite
 If you find InstantID useful for your research and applications, please cite us using this BibTeX:
