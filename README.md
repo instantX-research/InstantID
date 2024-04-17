@@ -235,7 +235,7 @@ gradio_demo/app-multicontrolnet.py
 - [sdbds/InstantID-for-windows](https://github.com/sdbds/InstantID-for-windows)
 
 ## Acknowledgements
-- InstantID is developed by InstantX Team at Xiaohongshu Inc, all copyright reserved.
+- InstantID is developed by InstantX Team, all copyright reserved.
 - Our work is highly inspired by [IP-Adapter](https://github.com/tencent-ailab/IP-Adapter) and [ControlNet](https://github.com/lllyasviel/ControlNet). Thanks for their great works!
 - Thanks [Yamer](https://civitai.com/user/Yamer) for developing [YamerMIX](https://civitai.com/models/84040?modelVersionId=196039), we use it as base model in our demo.
 - Thanks [ZHO-ZHO-ZHO](https://github.com/ZHO-ZHO-ZHO), [huxiuhan](https://github.com/huxiuhan), [sdbds](https://github.com/sdbds), [zsxkib](https://replicate.com/zsxkib) for their generous contributions.
