@@ -1,8 +1,9 @@
 <div align="center">
 <h1>InstantID: Zero-shot Identity-Preserving Generation in Seconds</h1>
 
+[**Qixun Wang**](https://github.com/wangqixun)<sup>12</sup> · [**Xu Bai**](https://huggingface.co/baymin0220)<sup>12</sup> · [**Haofan Wang**](https://haofanwang.github.io/)<sup>12*</sup> · [**Zekui Qin**](https://github.com/ZekuiQin)<sup>12</sup> · [**Anthony Chen**](https://antonioo-c.github.io/)<sup>123</sup>
 
-[**Qixun Wang**](https://github.com/wangqixun)<sup>12</sup> · [**Xu Bai**](https://huggingface.co/baymin0220)<sup>12</sup> · [**Haofan Wang**](https://haofanwang.github.io/)<sup>12*</sup> · [**Zekui Qin**](https://github.com/ZekuiQin)<sup>12</sup> · [**Anthony Chen**](https://antonioo-c.github.io/)<sup>123</sup> · Huaxia Li<sup>2</sup> · Xu Tang<sup>2</sup>
+Huaxia Li<sup>2</sup> · Xu Tang<sup>2</sup> · Yao Hu<sup>2</sup>
 
 <sup>1</sup>InstantX Team · <sup>2</sup>Xiaohongshu Inc · <sup>3</sup>Peking University
 
@@ -14,7 +15,6 @@
 [![GitHub](https://img.shields.io/github/stars/InstantID/InstantID?style=social)](https://github.com/InstantID/InstantID)
 
 <a href='https://huggingface.co/spaces/InstantX/InstantID'><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue'></a>
-[![Replicate](https://replicate.com/zsxkib/instant-id/badge)](https://replicate.com/zsxkib/instant-id)
 [![ModelScope](https://img.shields.io/badge/ModelScope-Studios-blue)](https://modelscope.cn/studios/instantx/InstantID/summary)
 [![Open in OpenXLab](https://cdn-static.openxlab.org.cn/app-center/openxlab_app.svg)](https://openxlab.org.cn/apps/detail/InstantX/InstantID)
 
@@ -25,6 +25,7 @@ InstantID is a new state-of-the-art tuning-free method to achieve ID-Preserving 
 <img src='assets/applications.png'>
 
 ## Release
+- [2024/04/03] 🔥 We release our recent work [InstantStyle](https://github.com/InstantStyle/InstantStyle) for style transfer, compatible with InstantID!
 - [2024/02/01] 🔥 We have supported LCM acceleration and Multi-ControlNets on our [Huggingface Spaces Demo](https://huggingface.co/spaces/InstantX/InstantID)! Our depth estimator is supported by [Depth-Anything](https://github.com/LiheYoung/Depth-Anything).
 - [2024/01/31] 🔥 [OneDiff](https://github.com/siliconflow/onediff?tab=readme-ov-file#easy-to-use) now supports accelerated inference for InstantID, check [this](https://github.com/siliconflow/onediff/blob/main/benchmarks/instant_id.py) for details!
 - [2024/01/23] 🔥 Our pipeline has been merged into [diffusers](https://github.com/huggingface/diffusers/blob/main/examples/community/pipeline_stable_diffusion_xl_instantid.py)!
@@ -83,7 +84,7 @@ python gradio_demo/download_models.py
 If you cannot access to Huggingface, you can use [hf-mirror](https://hf-mirror.com/) to download models.
 ```python
 export HF_ENDPOINT=https://hf-mirror.com
-huggingface-cli download --resume-download InstantX/InstantID --local-dir checkpoints
+huggingface-cli download --resume-download InstantX/InstantID --local-dir checkpoints --local-dir-use-symlinks False
 ```
 
 For face encoder, you need to manually download via this [URL](https://github.com/deepinsight/insightface/issues/1896#issuecomment-1023867304) to `models/antelopev2` as the default link is invalid. Once you have prepared all models, the folder tree should be like:
@@ -98,6 +99,11 @@ For face encoder, you need to manually download via this [URL](https://github.co
 ```
 
 ## Usage
+
+If you want to reproduce results in the paper, please refer to the code in [infer_full.py](infer_full.py). 
+If you want to compare the results with other methods, even without using depth-controlnet, it is recommended that you use this code. 
+If you want to quickly experience InstantID, please refer to the code in [infer.py](infer.py). 
+The following code👇 comes from [infer.py](infer.py). 
 
 ```python
 # !pip install opencv-python transformers accelerate insightface
@@ -144,7 +150,7 @@ face_image = load_image("./examples/yann-lecun_resize.jpg")
 
 # prepare face emb
 face_info = app.get(cv2.cvtColor(np.array(face_image), cv2.COLOR_RGB2BGR))
-face_info = sorted(face_info, key=lambda x:(x['bbox'][2]-x['bbox'][0])*x['bbox'][3]-x['bbox'][1])[-1]  # only use the maximum face
+face_info = sorted(face_info, key=lambda x:(x['bbox'][2]-x['bbox'][0])*(x['bbox'][3]-x['bbox'][1]))[-1]  # only use the maximum face
 face_emb = face_info['embedding']
 face_kps = draw_kps(face_image, face_info['kps'])
 
@@ -155,6 +161,7 @@ negative_prompt = "ugly, deformed, noisy, blurry, low contrast, realism, photore
 # generate image
 image = pipe(
     prompt,
+    negative_prompt=negative_prompt,
     image_embeds=face_emb,
     image=face_kps,
     controlnet_conditioning_scale=0.8,
@@ -165,6 +172,7 @@ image = pipe(
 To save VRAM, you can enable CPU offloading
 ```python
 pipe.enable_model_cpu_offload()
+pipe.enable_vae_tiling()
 ```
 
 ## Speed Up with LCM-LoRA
@@ -219,6 +227,7 @@ gradio_demo/app-multicontrolnet.py
 - [Mikubill/sd-webui-controlnet](https://github.com/Mikubill/sd-webui-controlnet/discussions/2589)
 
 ### ComfyUI
+- [cubiq/ComfyUI_InstantID](https://github.com/cubiq/ComfyUI_InstantID)
 - [ZHO-ZHO-ZHO/ComfyUI-InstantID](https://github.com/ZHO-ZHO-ZHO/ComfyUI-InstantID)
 - [huxiuhan/ComfyUI-InstantID](https://github.com/huxiuhan/ComfyUI-InstantID)
 
@@ -226,7 +235,7 @@ gradio_demo/app-multicontrolnet.py
 - [sdbds/InstantID-for-windows](https://github.com/sdbds/InstantID-for-windows)
 
 ## Acknowledgements
-- InstantID is developed by InstantX Team at Xiaohongshu Inc, all copyright reserved.
+- InstantID is developed by InstantX Team, all copyright reserved.
 - Our work is highly inspired by [IP-Adapter](https://github.com/tencent-ailab/IP-Adapter) and [ControlNet](https://github.com/lllyasviel/ControlNet). Thanks for their great works!
 - Thanks [Yamer](https://civitai.com/user/Yamer) for developing [YamerMIX](https://civitai.com/models/84040?modelVersionId=196039), we use it as base model in our demo.
 - Thanks [ZHO-ZHO-ZHO](https://github.com/ZHO-ZHO-ZHO), [huxiuhan](https://github.com/huxiuhan), [sdbds](https://github.com/sdbds), [zsxkib](https://replicate.com/zsxkib) for their generous contributions.
@@ -236,12 +245,15 @@ gradio_demo/app-multicontrolnet.py
 - Thanks to [SiliconFlow](https://github.com/siliconflow) for their OneDiff integration of InstantID! 
 
 ## Disclaimer
-The code of InstantID is released under [Apache License](https://github.com/InstantID/InstantID?tab=Apache-2.0-1-ov-file#readme) for both academic and commercial usage. **However, both manual-downloading and auto-downloading face models from insightface are for non-commercial research purposes only** accoreding to their [license](https://github.com/deepinsight/insightface?tab=readme-ov-file#license). Users are granted the freedom to create images using this tool, but they are obligated to comply with local laws and utilize it responsibly. The developers will not assume any responsibility for potential misuse by users.
+The code of InstantID is released under [Apache License](https://github.com/InstantID/InstantID?tab=Apache-2.0-1-ov-file#readme) for both academic and commercial usage. **However, both manual-downloading and auto-downloading face models from insightface are for non-commercial research purposes only** according to their [license](https://github.com/deepinsight/insightface?tab=readme-ov-file#license). **Our released checkpoints are also for research purposes only**. Users are granted the freedom to create images using this tool, but they are obligated to comply with local laws and utilize it responsibly. The developers will not assume any responsibility for potential misuse by users.
 
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=InstantID/InstantID&type=Date)](https://star-history.com/#InstantID/InstantID&Date)
 
+
+## Sponsor Us
+If you find this project useful, you can buy us a coffee via Github Sponsor! We support [Paypal](https://ko-fi.com/instantx) and [WeChat Pay](https://tinyurl.com/instantx-pay).
 
 ## Cite
 If you find InstantID useful for your research and applications, please cite us using this BibTeX:

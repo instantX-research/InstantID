@@ -7,7 +7,7 @@ from diffusers.utils import load_image
 from diffusers.models import ControlNetModel
 
 from insightface.app import FaceAnalysis
-from pipeline_stable_diffusion_xl_instantid import StableDiffusionXLInstantIDPipeline, draw_kps
+from pipeline_stable_diffusion_xl_instantid_img2img import StableDiffusionXLInstantIDImg2ImgPipeline, draw_kps
 
 def resize_img(input_image, max_side=1280, min_side=1024, size=None, 
                pad_to_max_side=False, mode=Image.BILINEAR, base_pixel_number=64):
@@ -34,7 +34,7 @@ def resize_img(input_image, max_side=1280, min_side=1024, size=None,
 
 
 if __name__ == "__main__":
-
+    
     # Load face encoder
     app = FaceAnalysis(name='antelopev2', root='./', providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
     app.prepare(ctx_id=0, det_size=(640, 640))
@@ -48,7 +48,7 @@ if __name__ == "__main__":
 
     base_model_path = 'stabilityai/stable-diffusion-xl-base-1.0'
 
-    pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
+    pipe = StableDiffusionXLInstantIDImg2ImgPipeline.from_pretrained(
         base_model_path,
         controlnet=controlnet,
         torch_dtype=torch.float16,
@@ -71,12 +71,14 @@ if __name__ == "__main__":
     image = pipe(
         prompt=prompt,
         negative_prompt=n_prompt,
+        image=face_image,
         image_embeds=face_emb,
-        image=face_kps,
+        control_image=face_kps,
         controlnet_conditioning_scale=0.8,
         ip_adapter_scale=0.8,
         num_inference_steps=30,
         guidance_scale=5,
+        strength=0.85
     ).images[0]
 
     image.save('result.jpg')

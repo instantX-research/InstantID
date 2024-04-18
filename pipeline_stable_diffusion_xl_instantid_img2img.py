@@ -13,42 +13,343 @@
 # limitations under the License.
 
 
+import math
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import cv2
-import math
-
 import numpy as np
 import PIL.Image
 import torch
-import torch.nn.functional as F
+import torch.nn as nn
 
+from diffusers import StableDiffusionXLControlNetImg2ImgPipeline
 from diffusers.image_processor import PipelineImageInput
-
 from diffusers.models import ControlNetModel
-
+from diffusers.pipelines.controlnet.multicontrolnet import MultiControlNetModel
+from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipelineOutput
 from diffusers.utils import (
     deprecate,
     logging,
     replace_example_docstring,
 )
-from diffusers.utils.torch_utils import is_compiled_module, is_torch_version
-from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipelineOutput
-
-from diffusers import StableDiffusionXLControlNetPipeline
-from diffusers.pipelines.controlnet.multicontrolnet import MultiControlNetModel
 from diffusers.utils.import_utils import is_xformers_available
+from diffusers.utils.torch_utils import is_compiled_module, is_torch_version
 
-from ip_adapter.resampler import Resampler
-from ip_adapter.utils import is_torch2_available
 
-if is_torch2_available():
-    from ip_adapter.attention_processor import IPAttnProcessor2_0 as IPAttnProcessor, AttnProcessor2_0 as AttnProcessor
-else:
-    from ip_adapter.attention_processor import IPAttnProcessor, AttnProcessor
-from ip_adapter.attention_processor import region_control
+try:
+    import xformers
+    import xformers.ops
+
+    xformers_available = True
+except Exception:
+    xformers_available = False
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
+
+
+def FeedForward(dim, mult=4):
+    inner_dim = int(dim * mult)
+    return nn.Sequential(
+        nn.LayerNorm(dim),
+        nn.Linear(dim, inner_dim, bias=False),
+        nn.GELU(),
+        nn.Linear(inner_dim, dim, bias=False),
+    )
+
+
+def reshape_tensor(x, heads):
+    bs, length, width = x.shape
+    # (bs, length, width) --> (bs, length, n_heads, dim_per_head)
+    x = x.view(bs, length, heads, -1)
+    # (bs, length, n_heads, dim_per_head) --> (bs, n_heads, length, dim_per_head)
+    x = x.transpose(1, 2)
+    # (bs, n_heads, length, dim_per_head) --> (bs*n_heads, length, dim_per_head)
+    x = x.reshape(bs, heads, length, -1)
+    return x
+
+
+class PerceiverAttention(nn.Module):
+    def __init__(self, *, dim, dim_head=64, heads=8):
+        super().__init__()
+        self.scale = dim_head**-0.5
+        self.dim_head = dim_head
+        self.heads = heads
+        inner_dim = dim_head * heads
+
+        self.norm1 = nn.LayerNorm(dim)
+        self.norm2 = nn.LayerNorm(dim)
+
+        self.to_q = nn.Linear(dim, inner_dim, bias=False)
+        self.to_kv = nn.Linear(dim, inner_dim * 2, bias=False)
+        self.to_out = nn.Linear(inner_dim, dim, bias=False)
+
+    def forward(self, x, latents):
+        """
+        Args:
+            x (torch.Tensor): image features
+                shape (b, n1, D)
+            latent (torch.Tensor): latent features
+                shape (b, n2, D)
+        """
+        x = self.norm1(x)
+        latents = self.norm2(latents)
+
+        b, l, _ = latents.shape
+
+        q = self.to_q(latents)
+        kv_input = torch.cat((x, latents), dim=-2)
+        k, v = self.to_kv(kv_input).chunk(2, dim=-1)
+
+        q = reshape_tensor(q, self.heads)
+        k = reshape_tensor(k, self.heads)
+        v = reshape_tensor(v, self.heads)
+
+        # attention
+        scale = 1 / math.sqrt(math.sqrt(self.dim_head))
+        weight = (q * scale) @ (k * scale).transpose(-2, -1)  # More stable with f16 than dividing afterwards
+        weight = torch.softmax(weight.float(), dim=-1).type(weight.dtype)
+        out = weight @ v
+
+        out = out.permute(0, 2, 1, 3).reshape(b, l, -1)
+
+        return self.to_out(out)
+
+
+class Resampler(nn.Module):
+    def __init__(
+        self,
+        dim=1024,
+        depth=8,
+        dim_head=64,
+        heads=16,
+        num_queries=8,
+        embedding_dim=768,
+        output_dim=1024,
+        ff_mult=4,
+    ):
+        super().__init__()
+
+        self.latents = nn.Parameter(torch.randn(1, num_queries, dim) / dim**0.5)
+
+        self.proj_in = nn.Linear(embedding_dim, dim)
+
+        self.proj_out = nn.Linear(dim, output_dim)
+        self.norm_out = nn.LayerNorm(output_dim)
+
+        self.layers = nn.ModuleList([])
+        for _ in range(depth):
+            self.layers.append(
+                nn.ModuleList(
+                    [
+                        PerceiverAttention(dim=dim, dim_head=dim_head, heads=heads),
+                        FeedForward(dim=dim, mult=ff_mult),
+                    ]
+                )
+            )
+
+    def forward(self, x):
+        latents = self.latents.repeat(x.size(0), 1, 1)
+        x = self.proj_in(x)
+
+        for attn, ff in self.layers:
+            latents = attn(x, latents) + latents
+            latents = ff(latents) + latents
+
+        latents = self.proj_out(latents)
+        return self.norm_out(latents)
+
+
+class AttnProcessor(nn.Module):
+    r"""
+    Default processor for performing attention-related computations.
+    """
+
+    def __init__(
+        self,
+        hidden_size=None,
+        cross_attention_dim=None,
+    ):
+        super().__init__()
+
+    def __call__(
+        self,
+        attn,
+        hidden_states,
+        encoder_hidden_states=None,
+        attention_mask=None,
+        temb=None,
+    ):
+        residual = hidden_states
+
+        if attn.spatial_norm is not None:
+            hidden_states = attn.spatial_norm(hidden_states, temb)
+
+        input_ndim = hidden_states.ndim
+
+        if input_ndim == 4:
+            batch_size, channel, height, width = hidden_states.shape
+            hidden_states = hidden_states.view(batch_size, channel, height * width).transpose(1, 2)
+
+        batch_size, sequence_length, _ = (
+            hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
+        )
+        attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
+
+        if attn.group_norm is not None:
+            hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
+
+        query = attn.to_q(hidden_states)
+
+        if encoder_hidden_states is None:
+            encoder_hidden_states = hidden_states
+        elif attn.norm_cross:
+            encoder_hidden_states = attn.norm_encoder_hidden_states(encoder_hidden_states)
+
+        key = attn.to_k(encoder_hidden_states)
+        value = attn.to_v(encoder_hidden_states)
+
+        query = attn.head_to_batch_dim(query)
+        key = attn.head_to_batch_dim(key)
+        value = attn.head_to_batch_dim(value)
+
+        attention_probs = attn.get_attention_scores(query, key, attention_mask)
+        hidden_states = torch.bmm(attention_probs, value)
+        hidden_states = attn.batch_to_head_dim(hidden_states)
+
+        # linear proj
+        hidden_states = attn.to_out[0](hidden_states)
+        # dropout
+        hidden_states = attn.to_out[1](hidden_states)
+
+        if input_ndim == 4:
+            hidden_states = hidden_states.transpose(-1, -2).reshape(batch_size, channel, height, width)
+
+        if attn.residual_connection:
+            hidden_states = hidden_states + residual
+
+        hidden_states = hidden_states / attn.rescale_output_factor
+
+        return hidden_states
+
+
+class IPAttnProcessor(nn.Module):
+    r"""
+    Attention processor for IP-Adapater.
+    Args:
+        hidden_size (`int`):
+            The hidden size of the attention layer.
+        cross_attention_dim (`int`):
+            The number of channels in the `encoder_hidden_states`.
+        scale (`float`, defaults to 1.0):
+            the weight scale of image prompt.
+        num_tokens (`int`, defaults to 4 when do ip_adapter_plus it should be 16):
+            The context length of the image features.
+    """
+
+    def __init__(self, hidden_size, cross_attention_dim=None, scale=1.0, num_tokens=4):
+        super().__init__()
+
+        self.hidden_size = hidden_size
+        self.cross_attention_dim = cross_attention_dim
+        self.scale = scale
+        self.num_tokens = num_tokens
+
+        self.to_k_ip = nn.Linear(cross_attention_dim or hidden_size, hidden_size, bias=False)
+        self.to_v_ip = nn.Linear(cross_attention_dim or hidden_size, hidden_size, bias=False)
+
+    def __call__(
+        self,
+        attn,
+        hidden_states,
+        encoder_hidden_states=None,
+        attention_mask=None,
+        temb=None,
+    ):
+        residual = hidden_states
+
+        if attn.spatial_norm is not None:
+            hidden_states = attn.spatial_norm(hidden_states, temb)
+
+        input_ndim = hidden_states.ndim
+
+        if input_ndim == 4:
+            batch_size, channel, height, width = hidden_states.shape
+            hidden_states = hidden_states.view(batch_size, channel, height * width).transpose(1, 2)
+
+        batch_size, sequence_length, _ = (
+            hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
+        )
+        attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
+
+        if attn.group_norm is not None:
+            hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
+
+        query = attn.to_q(hidden_states)
+
+        if encoder_hidden_states is None:
+            encoder_hidden_states = hidden_states
+        else:
+            # get encoder_hidden_states, ip_hidden_states
+            end_pos = encoder_hidden_states.shape[1] - self.num_tokens
+            encoder_hidden_states, ip_hidden_states = (
+                encoder_hidden_states[:, :end_pos, :],
+                encoder_hidden_states[:, end_pos:, :],
+            )
+            if attn.norm_cross:
+                encoder_hidden_states = attn.norm_encoder_hidden_states(encoder_hidden_states)
+
+        key = attn.to_k(encoder_hidden_states)
+        value = attn.to_v(encoder_hidden_states)
+
+        query = attn.head_to_batch_dim(query)
+        key = attn.head_to_batch_dim(key)
+        value = attn.head_to_batch_dim(value)
+
+        if xformers_available:
+            hidden_states = self._memory_efficient_attention_xformers(query, key, value, attention_mask)
+        else:
+            attention_probs = attn.get_attention_scores(query, key, attention_mask)
+            hidden_states = torch.bmm(attention_probs, value)
+        hidden_states = attn.batch_to_head_dim(hidden_states)
+
+        # for ip-adapter
+        ip_key = self.to_k_ip(ip_hidden_states)
+        ip_value = self.to_v_ip(ip_hidden_states)
+
+        ip_key = attn.head_to_batch_dim(ip_key)
+        ip_value = attn.head_to_batch_dim(ip_value)
+
+        if xformers_available:
+            ip_hidden_states = self._memory_efficient_attention_xformers(query, ip_key, ip_value, None)
+        else:
+            ip_attention_probs = attn.get_attention_scores(query, ip_key, None)
+            ip_hidden_states = torch.bmm(ip_attention_probs, ip_value)
+        ip_hidden_states = attn.batch_to_head_dim(ip_hidden_states)
+
+        hidden_states = hidden_states + self.scale * ip_hidden_states
+
+        # linear proj
+        hidden_states = attn.to_out[0](hidden_states)
+        # dropout
+        hidden_states = attn.to_out[1](hidden_states)
+
+        if input_ndim == 4:
+            hidden_states = hidden_states.transpose(-1, -2).reshape(batch_size, channel, height, width)
+
+        if attn.residual_connection:
+            hidden_states = hidden_states + residual
+
+        hidden_states = hidden_states / attn.rescale_output_factor
+
+        return hidden_states
+
+    def _memory_efficient_attention_xformers(self, query, key, value, attention_mask):
+        # TODO attention_mask
+        query = query.contiguous()
+        key = key.contiguous()
+        value = value.contiguous()
+        hidden_states = xformers.ops.memory_efficient_attention(query, key, value, attn_bias=attention_mask)
+        return hidden_states
 
 
 EXAMPLE_DOC_STRING = """
@@ -63,26 +364,26 @@ EXAMPLE_DOC_STRING = """
         >>> import torch
         >>> import numpy as np
         >>> from PIL import Image
-        
+
         >>> from insightface.app import FaceAnalysis
         >>> from pipeline_stable_diffusion_xl_instantid import StableDiffusionXLInstantIDPipeline, draw_kps
 
         >>> # download 'antelopev2' under ./models
         >>> app = FaceAnalysis(name='antelopev2', root='./', providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
         >>> app.prepare(ctx_id=0, det_size=(640, 640))
-        
+
         >>> # download models under ./checkpoints
         >>> face_adapter = f'./checkpoints/ip-adapter.bin'
         >>> controlnet_path = f'./checkpoints/ControlNetModel'
-        
+
         >>> # load IdentityNet
         >>> controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=torch.float16)
-        
+
         >>> pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
         ...     "stabilityai/stable-diffusion-xl-base-1.0", controlnet=controlnet, torch_dtype=torch.float16
         ... )
         >>> pipe.cuda()
-        
+
         >>> # load adapter
         >>> pipe.load_ip_adapter_instantid(face_adapter)
 
@@ -91,11 +392,11 @@ EXAMPLE_DOC_STRING = """
 
         >>> # load an image
         >>> image = load_image("your-example.jpg")
-        
+
         >>> face_info = app.get(cv2.cvtColor(np.array(face_image), cv2.COLOR_RGB2BGR))[-1]
         >>> face_emb = face_info['embedding']
         >>> face_kps = draw_kps(face_image, face_info['kps'])
-        
+
         >>> pipe.set_ip_adapter_scale(0.8)
 
         >>> # generate image
@@ -105,388 +406,8 @@ EXAMPLE_DOC_STRING = """
         ```
 """
 
-from transformers import CLIPTokenizer
-from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipeline
-class LongPromptWeight(object):
-    
-    """
-    Copied from https://github.com/huggingface/diffusers/blob/main/examples/community/lpw_stable_diffusion_xl.py
-    """
-    
-    def __init__(self) -> None:
-        pass
 
-    def parse_prompt_attention(self, text):
-        """
-        Parses a string with attention tokens and returns a list of pairs: text and its associated weight.
-        Accepted tokens are:
-        (abc) - increases attention to abc by a multiplier of 1.1
-        (abc:3.12) - increases attention to abc by a multiplier of 3.12
-        [abc] - decreases attention to abc by a multiplier of 1.1
-        \( - literal character '('
-        \[ - literal character '['
-        \) - literal character ')'
-        \] - literal character ']'
-        \\ - literal character '\'
-        anything else - just text
-
-        >>> parse_prompt_attention('normal text')
-        [['normal text', 1.0]]
-        >>> parse_prompt_attention('an (important) word')
-        [['an ', 1.0], ['important', 1.1], [' word', 1.0]]
-        >>> parse_prompt_attention('(unbalanced')
-        [['unbalanced', 1.1]]
-        >>> parse_prompt_attention('\(literal\]')
-        [['(literal]', 1.0]]
-        >>> parse_prompt_attention('(unnecessary)(parens)')
-        [['unnecessaryparens', 1.1]]
-        >>> parse_prompt_attention('a (((house:1.3)) [on] a (hill:0.5), sun, (((sky))).')
-        [['a ', 1.0],
-        ['house', 1.5730000000000004],
-        [' ', 1.1],
-        ['on', 1.0],
-        [' a ', 1.1],
-        ['hill', 0.55],
-        [', sun, ', 1.1],
-        ['sky', 1.4641000000000006],
-        ['.', 1.1]]
-        """
-        import re
-
-        re_attention = re.compile(
-            r"""
-                \\\(|\\\)|\\\[|\\]|\\\\|\\|\(|\[|:([+-]?[.\d]+)\)|
-                \)|]|[^\\()\[\]:]+|:
-            """,
-            re.X,
-        )
-
-        re_break = re.compile(r"\s*\bBREAK\b\s*", re.S)
-
-        res = []
-        round_brackets = []
-        square_brackets = []
-
-        round_bracket_multiplier = 1.1
-        square_bracket_multiplier = 1 / 1.1
-
-        def multiply_range(start_position, multiplier):
-            for p in range(start_position, len(res)):
-                res[p][1] *= multiplier
-
-        for m in re_attention.finditer(text):
-            text = m.group(0)
-            weight = m.group(1)
-
-            if text.startswith("\\"):
-                res.append([text[1:], 1.0])
-            elif text == "(":
-                round_brackets.append(len(res))
-            elif text == "[":
-                square_brackets.append(len(res))
-            elif weight is not None and len(round_brackets) > 0:
-                multiply_range(round_brackets.pop(), float(weight))
-            elif text == ")" and len(round_brackets) > 0:
-                multiply_range(round_brackets.pop(), round_bracket_multiplier)
-            elif text == "]" and len(square_brackets) > 0:
-                multiply_range(square_brackets.pop(), square_bracket_multiplier)
-            else:
-                parts = re.split(re_break, text)
-                for i, part in enumerate(parts):
-                    if i > 0:
-                        res.append(["BREAK", -1])
-                    res.append([part, 1.0])
-
-        for pos in round_brackets:
-            multiply_range(pos, round_bracket_multiplier)
-
-        for pos in square_brackets:
-            multiply_range(pos, square_bracket_multiplier)
-
-        if len(res) == 0:
-            res = [["", 1.0]]
-
-        # merge runs of identical weights
-        i = 0
-        while i + 1 < len(res):
-            if res[i][1] == res[i + 1][1]:
-                res[i][0] += res[i + 1][0]
-                res.pop(i + 1)
-            else:
-                i += 1
-
-        return res
-
-    def get_prompts_tokens_with_weights(self, clip_tokenizer: CLIPTokenizer, prompt: str):
-        """
-        Get prompt token ids and weights, this function works for both prompt and negative prompt
-
-        Args:
-            pipe (CLIPTokenizer)
-                A CLIPTokenizer
-            prompt (str)
-                A prompt string with weights
-
-        Returns:
-            text_tokens (list)
-                A list contains token ids
-            text_weight (list)
-                A list contains the correspodent weight of token ids
-
-        Example:
-            import torch
-            from transformers import CLIPTokenizer
-
-            clip_tokenizer = CLIPTokenizer.from_pretrained(
-                "stablediffusionapi/deliberate-v2"
-                , subfolder = "tokenizer"
-                , dtype = torch.float16
-            )
-
-            token_id_list, token_weight_list = get_prompts_tokens_with_weights(
-                clip_tokenizer = clip_tokenizer
-                ,prompt = "a (red:1.5) cat"*70
-            )
-        """
-        texts_and_weights = self.parse_prompt_attention(prompt)
-        text_tokens, text_weights = [], []
-        for word, weight in texts_and_weights:
-            # tokenize and discard the starting and the ending token
-            token = clip_tokenizer(word, truncation=False).input_ids[1:-1]  # so that tokenize whatever length prompt
-            # the returned token is a 1d list: [320, 1125, 539, 320]
-
-            # merge the new tokens to the all tokens holder: text_tokens
-            text_tokens = [*text_tokens, *token]
-
-            # each token chunk will come with one weight, like ['red cat', 2.0]
-            # need to expand weight for each token.
-            chunk_weights = [weight] * len(token)
-
-            # append the weight back to the weight holder: text_weights
-            text_weights = [*text_weights, *chunk_weights]
-        return text_tokens, text_weights
-
-    def group_tokens_and_weights(self, token_ids: list, weights: list, pad_last_block=False):
-        """
-        Produce tokens and weights in groups and pad the missing tokens
-
-        Args:
-            token_ids (list)
-                The token ids from tokenizer
-            weights (list)
-                The weights list from function get_prompts_tokens_with_weights
-            pad_last_block (bool)
-                Control if fill the last token list to 75 tokens with eos
-        Returns:
-            new_token_ids (2d list)
-            new_weights (2d list)
-
-        Example:
-            token_groups,weight_groups = group_tokens_and_weights(
-                token_ids = token_id_list
-                , weights = token_weight_list
-            )
-        """
-        bos, eos = 49406, 49407
-
-        # this will be a 2d list
-        new_token_ids = []
-        new_weights = []
-        while len(token_ids) >= 75:
-            # get the first 75 tokens
-            head_75_tokens = [token_ids.pop(0) for _ in range(75)]
-            head_75_weights = [weights.pop(0) for _ in range(75)]
-
-            # extract token ids and weights
-            temp_77_token_ids = [bos] + head_75_tokens + [eos]
-            temp_77_weights = [1.0] + head_75_weights + [1.0]
-
-            # add 77 token and weights chunk to the holder list
-            new_token_ids.append(temp_77_token_ids)
-            new_weights.append(temp_77_weights)
-
-        # padding the left
-        if len(token_ids) >= 0:
-            padding_len = 75 - len(token_ids) if pad_last_block else 0
-
-            temp_77_token_ids = [bos] + token_ids + [eos] * padding_len + [eos]
-            new_token_ids.append(temp_77_token_ids)
-
-            temp_77_weights = [1.0] + weights + [1.0] * padding_len + [1.0]
-            new_weights.append(temp_77_weights)
-
-        return new_token_ids, new_weights
-
-    def get_weighted_text_embeddings_sdxl(
-        self,
-        pipe: StableDiffusionXLPipeline,
-        prompt: str = "",
-        prompt_2: str = None,
-        neg_prompt: str = "",
-        neg_prompt_2: str = None,
-        prompt_embeds=None,
-        negative_prompt_embeds=None,
-        pooled_prompt_embeds=None,
-        negative_pooled_prompt_embeds=None,
-        extra_emb=None,
-        extra_emb_alpha=0.6,
-    ):
-        """
-        This function can process long prompt with weights, no length limitation
-        for Stable Diffusion XL
-
-        Args:
-            pipe (StableDiffusionPipeline)
-            prompt (str)
-            prompt_2 (str)
-            neg_prompt (str)
-            neg_prompt_2 (str)
-        Returns:
-            prompt_embeds (torch.Tensor)
-            neg_prompt_embeds (torch.Tensor)
-        """
-        # 
-        if prompt_embeds is not None and \
-            negative_prompt_embeds is not None and \
-            pooled_prompt_embeds is not None and \
-            negative_pooled_prompt_embeds is not None:
-            return prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds
-
-        if prompt_2:
-            prompt = f"{prompt} {prompt_2}"
-
-        if neg_prompt_2:
-            neg_prompt = f"{neg_prompt} {neg_prompt_2}"
-
-        eos = pipe.tokenizer.eos_token_id
-
-        # tokenizer 1
-        prompt_tokens, prompt_weights = self.get_prompts_tokens_with_weights(pipe.tokenizer, prompt)
-        neg_prompt_tokens, neg_prompt_weights = self.get_prompts_tokens_with_weights(pipe.tokenizer, neg_prompt)
-
-        # tokenizer 2
-        # prompt_tokens_2, prompt_weights_2 = self.get_prompts_tokens_with_weights(pipe.tokenizer_2, prompt)
-        # neg_prompt_tokens_2, neg_prompt_weights_2 = self.get_prompts_tokens_with_weights(pipe.tokenizer_2, neg_prompt)
-        # tokenizer 2 遇到 !! !!!! 等多感叹号和tokenizer 1的效果不一致
-        prompt_tokens_2, prompt_weights_2 = self.get_prompts_tokens_with_weights(pipe.tokenizer, prompt)
-        neg_prompt_tokens_2, neg_prompt_weights_2 = self.get_prompts_tokens_with_weights(pipe.tokenizer, neg_prompt)
-
-        # padding the shorter one for prompt set 1
-        prompt_token_len = len(prompt_tokens)
-        neg_prompt_token_len = len(neg_prompt_tokens)
-
-        if prompt_token_len > neg_prompt_token_len:
-            # padding the neg_prompt with eos token
-            neg_prompt_tokens = neg_prompt_tokens + [eos] * abs(prompt_token_len - neg_prompt_token_len)
-            neg_prompt_weights = neg_prompt_weights + [1.0] * abs(prompt_token_len - neg_prompt_token_len)
-        else:
-            # padding the prompt
-            prompt_tokens = prompt_tokens + [eos] * abs(prompt_token_len - neg_prompt_token_len)
-            prompt_weights = prompt_weights + [1.0] * abs(prompt_token_len - neg_prompt_token_len)
-
-        # padding the shorter one for token set 2
-        prompt_token_len_2 = len(prompt_tokens_2)
-        neg_prompt_token_len_2 = len(neg_prompt_tokens_2)
-
-        if prompt_token_len_2 > neg_prompt_token_len_2:
-            # padding the neg_prompt with eos token
-            neg_prompt_tokens_2 = neg_prompt_tokens_2 + [eos] * abs(prompt_token_len_2 - neg_prompt_token_len_2)
-            neg_prompt_weights_2 = neg_prompt_weights_2 + [1.0] * abs(prompt_token_len_2 - neg_prompt_token_len_2)
-        else:
-            # padding the prompt
-            prompt_tokens_2 = prompt_tokens_2 + [eos] * abs(prompt_token_len_2 - neg_prompt_token_len_2)
-            prompt_weights_2 = prompt_weights + [1.0] * abs(prompt_token_len_2 - neg_prompt_token_len_2)
-
-        embeds = []
-        neg_embeds = []
-
-        prompt_token_groups, prompt_weight_groups = self.group_tokens_and_weights(prompt_tokens.copy(), prompt_weights.copy())
-
-        neg_prompt_token_groups, neg_prompt_weight_groups = self.group_tokens_and_weights(
-            neg_prompt_tokens.copy(), neg_prompt_weights.copy()
-        )
-
-        prompt_token_groups_2, prompt_weight_groups_2 = self.group_tokens_and_weights(
-            prompt_tokens_2.copy(), prompt_weights_2.copy()
-        )
-
-        neg_prompt_token_groups_2, neg_prompt_weight_groups_2 = self.group_tokens_and_weights(
-            neg_prompt_tokens_2.copy(), neg_prompt_weights_2.copy()
-        )
-
-        # get prompt embeddings one by one is not working.
-        for i in range(len(prompt_token_groups)):
-            # get positive prompt embeddings with weights
-            token_tensor = torch.tensor([prompt_token_groups[i]], dtype=torch.long, device=pipe.device)
-            weight_tensor = torch.tensor(prompt_weight_groups[i], dtype=torch.float16, device=pipe.device)
-
-            token_tensor_2 = torch.tensor([prompt_token_groups_2[i]], dtype=torch.long, device=pipe.device)
-
-            # use first text encoder
-            prompt_embeds_1 = pipe.text_encoder(token_tensor.to(pipe.device), output_hidden_states=True)
-            prompt_embeds_1_hidden_states = prompt_embeds_1.hidden_states[-2]
-
-            # use second text encoder
-            prompt_embeds_2 = pipe.text_encoder_2(token_tensor_2.to(pipe.device), output_hidden_states=True)
-            prompt_embeds_2_hidden_states = prompt_embeds_2.hidden_states[-2]
-            pooled_prompt_embeds = prompt_embeds_2[0]
-
-            prompt_embeds_list = [prompt_embeds_1_hidden_states, prompt_embeds_2_hidden_states]
-            token_embedding = torch.concat(prompt_embeds_list, dim=-1).squeeze(0)
-
-            for j in range(len(weight_tensor)):
-                if weight_tensor[j] != 1.0:
-                    token_embedding[j] = (
-                        token_embedding[-1] + (token_embedding[j] - token_embedding[-1]) * weight_tensor[j]
-                    )
-
-            token_embedding = token_embedding.unsqueeze(0)
-            embeds.append(token_embedding)
-
-            # get negative prompt embeddings with weights
-            neg_token_tensor = torch.tensor([neg_prompt_token_groups[i]], dtype=torch.long, device=pipe.device)
-            neg_token_tensor_2 = torch.tensor([neg_prompt_token_groups_2[i]], dtype=torch.long, device=pipe.device)
-            neg_weight_tensor = torch.tensor(neg_prompt_weight_groups[i], dtype=torch.float16, device=pipe.device)
-
-            # use first text encoder
-            neg_prompt_embeds_1 = pipe.text_encoder(neg_token_tensor.to(pipe.device), output_hidden_states=True)
-            neg_prompt_embeds_1_hidden_states = neg_prompt_embeds_1.hidden_states[-2]
-
-            # use second text encoder
-            neg_prompt_embeds_2 = pipe.text_encoder_2(neg_token_tensor_2.to(pipe.device), output_hidden_states=True)
-            neg_prompt_embeds_2_hidden_states = neg_prompt_embeds_2.hidden_states[-2]
-            negative_pooled_prompt_embeds = neg_prompt_embeds_2[0]
-
-            neg_prompt_embeds_list = [neg_prompt_embeds_1_hidden_states, neg_prompt_embeds_2_hidden_states]
-            neg_token_embedding = torch.concat(neg_prompt_embeds_list, dim=-1).squeeze(0)
-
-            for z in range(len(neg_weight_tensor)):
-                if neg_weight_tensor[z] != 1.0:
-                    neg_token_embedding[z] = (
-                        neg_token_embedding[-1] + (neg_token_embedding[z] - neg_token_embedding[-1]) * neg_weight_tensor[z]
-                    )
-
-            neg_token_embedding = neg_token_embedding.unsqueeze(0)
-            neg_embeds.append(neg_token_embedding)
-
-        prompt_embeds = torch.cat(embeds, dim=1)
-        negative_prompt_embeds = torch.cat(neg_embeds, dim=1)
-
-        if extra_emb is not None:
-            extra_emb = extra_emb.to(prompt_embeds.device, dtype=prompt_embeds.dtype) * extra_emb_alpha
-            prompt_embeds = torch.cat([prompt_embeds, extra_emb], 1)
-            negative_prompt_embeds = torch.cat([negative_prompt_embeds, torch.zeros_like(extra_emb)], 1)
-            print(f'fix prompt_embeds, extra_emb_alpha={extra_emb_alpha}')
-
-        return prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds
-
-    def get_prompt_embeds(self, *args, **kwargs):
-        prompt_embeds, negative_prompt_embeds, _, _ = self.get_weighted_text_embeddings_sdxl(*args, **kwargs)
-        prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
-        return prompt_embeds
-
-def draw_kps(image_pil, kps, color_list=[(255,0,0), (0,255,0), (0,0,255), (255,255,0), (255,0,255)]):
-    
+def draw_kps(image_pil, kps, color_list=[(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 0, 255)]):
     stickwidth = 4
     limbSeq = np.array([[0, 2], [1, 2], [3, 2], [4, 2]])
     kps = np.array(kps)
@@ -502,7 +423,9 @@ def draw_kps(image_pil, kps, color_list=[(255,0,0), (0,255,0), (0,0,255), (255,2
         y = kps[index][:, 1]
         length = ((x[0] - x[1]) ** 2 + (y[0] - y[1]) ** 2) ** 0.5
         angle = math.degrees(math.atan2(y[0] - y[1], x[0] - x[1]))
-        polygon = cv2.ellipse2Poly((int(np.mean(x)), int(np.mean(y))), (int(length / 2), stickwidth), int(angle), 0, 360, 1)
+        polygon = cv2.ellipse2Poly(
+            (int(np.mean(x)), int(np.mean(y))), (int(length / 2), stickwidth), int(angle), 0, 360, 1
+        )
         out_img = cv2.fillConvexPoly(out_img.copy(), polygon, color)
     out_img = (out_img * 0.6).astype(np.uint8)
 
@@ -513,15 +436,15 @@ def draw_kps(image_pil, kps, color_list=[(255,0,0), (0,255,0), (0,0,255), (255,2
 
     out_img_pil = PIL.Image.fromarray(out_img.astype(np.uint8))
     return out_img_pil
-    
-class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
-    
+
+
+class StableDiffusionXLInstantIDImg2ImgPipeline(StableDiffusionXLControlNetImg2ImgPipeline):
     def cuda(self, dtype=torch.float16, use_xformers=False):
-        self.to('cuda', dtype)
-        
-        if hasattr(self, 'image_proj_model'):
+        self.to("cuda", dtype)
+
+        if hasattr(self, "image_proj_model"):
             self.image_proj_model.to(self.unet.device).to(self.unet.dtype)
-        
+
         if use_xformers:
             if is_xformers_available():
                 import xformers
@@ -529,19 +452,18 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
 
                 xformers_version = version.parse(xformers.__version__)
                 if xformers_version == version.parse("0.0.16"):
-                    logger.warn(
+                    logger.warning(
                         "xFormers 0.0.16 cannot be used for training in some GPUs. If you observe problems during training, please update xFormers to at least 0.0.17. See https://huggingface.co/docs/diffusers/main/en/optimization/xformers for more details."
                     )
                 self.enable_xformers_memory_efficient_attention()
             else:
                 raise ValueError("xformers is not available. Make sure it is installed correctly")
-    
-    def load_ip_adapter_instantid(self, model_ckpt, image_emb_dim=512, num_tokens=16, scale=0.5):     
+
+    def load_ip_adapter_instantid(self, model_ckpt, image_emb_dim=512, num_tokens=16, scale=0.5):
         self.set_image_proj_model(model_ckpt, image_emb_dim, num_tokens)
         self.set_ip_adapter(model_ckpt, num_tokens, scale)
-        
+
     def set_image_proj_model(self, model_ckpt, image_emb_dim=512, num_tokens=16):
-        
         image_proj_model = Resampler(
             dim=1280,
             depth=4,
@@ -554,17 +476,16 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
         )
 
         image_proj_model.eval()
-        
+
         self.image_proj_model = image_proj_model.to(self.device, dtype=self.dtype)
         state_dict = torch.load(model_ckpt, map_location="cpu")
-        if 'image_proj' in state_dict:
+        if "image_proj" in state_dict:
             state_dict = state_dict["image_proj"]
         self.image_proj_model.load_state_dict(state_dict)
-        
+
         self.image_proj_model_in_features = image_emb_dim
-    
+
     def set_ip_adapter(self, model_ckpt, num_tokens, scale):
-        
         unet = self.unet
         attn_procs = {}
         for name in unet.attn_processors.keys():
@@ -580,47 +501,42 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
             if cross_attention_dim is None:
                 attn_procs[name] = AttnProcessor().to(unet.device, dtype=unet.dtype)
             else:
-                attn_procs[name] = IPAttnProcessor(hidden_size=hidden_size, 
-                                                   cross_attention_dim=cross_attention_dim, 
-                                                   scale=scale,
-                                                   num_tokens=num_tokens).to(unet.device, dtype=unet.dtype)
+                attn_procs[name] = IPAttnProcessor(
+                    hidden_size=hidden_size,
+                    cross_attention_dim=cross_attention_dim,
+                    scale=scale,
+                    num_tokens=num_tokens,
+                ).to(unet.device, dtype=unet.dtype)
         unet.set_attn_processor(attn_procs)
-        
+
         state_dict = torch.load(model_ckpt, map_location="cpu")
         ip_layers = torch.nn.ModuleList(self.unet.attn_processors.values())
-        if 'ip_adapter' in state_dict:
-            state_dict = state_dict['ip_adapter']
+        if "ip_adapter" in state_dict:
+            state_dict = state_dict["ip_adapter"]
         ip_layers.load_state_dict(state_dict)
-    
+
     def set_ip_adapter_scale(self, scale):
         unet = getattr(self, self.unet_name) if not hasattr(self, "unet") else self.unet
         for attn_processor in unet.attn_processors.values():
             if isinstance(attn_processor, IPAttnProcessor):
                 attn_processor.scale = scale
 
-    def _encode_prompt_image_emb(self, prompt_image_emb, device, num_images_per_prompt, dtype, do_classifier_free_guidance):
-        
+    def _encode_prompt_image_emb(self, prompt_image_emb, device, dtype, do_classifier_free_guidance):
         if isinstance(prompt_image_emb, torch.Tensor):
             prompt_image_emb = prompt_image_emb.clone().detach()
         else:
             prompt_image_emb = torch.tensor(prompt_image_emb)
-            
+
+        prompt_image_emb = prompt_image_emb.to(device=device, dtype=dtype)
         prompt_image_emb = prompt_image_emb.reshape([1, -1, self.image_proj_model_in_features])
-        
+
         if do_classifier_free_guidance:
             prompt_image_emb = torch.cat([torch.zeros_like(prompt_image_emb), prompt_image_emb], dim=0)
         else:
             prompt_image_emb = torch.cat([prompt_image_emb], dim=0)
-        
-        prompt_image_emb = prompt_image_emb.to(device=self.image_proj_model.latents.device, 
-                                               dtype=self.image_proj_model.latents.dtype)
-        prompt_image_emb = self.image_proj_model(prompt_image_emb)
-
-        bs_embed, seq_len, _ = prompt_image_emb.shape
-        prompt_image_emb = prompt_image_emb.repeat(1, num_images_per_prompt, 1)
-        prompt_image_emb = prompt_image_emb.view(bs_embed * num_images_per_prompt, seq_len, -1)
-        
-        return prompt_image_emb.to(device=device, dtype=dtype)
+        image_proj_model_device = self.image_proj_model.to(device)
+        prompt_image_emb = image_proj_model_device(prompt_image_emb)
+        return prompt_image_emb
 
     @torch.no_grad()
     @replace_example_docstring(EXAMPLE_DOC_STRING)
@@ -629,6 +545,8 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
         prompt: Union[str, List[str]] = None,
         prompt_2: Optional[Union[str, List[str]]] = None,
         image: PipelineImageInput = None,
+        control_image: PipelineImageInput = None,
+        strength: float = 0.8,
         height: Optional[int] = None,
         width: Optional[int] = None,
         num_inference_steps: int = 50,
@@ -657,16 +575,11 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
         negative_original_size: Optional[Tuple[int, int]] = None,
         negative_crops_coords_top_left: Tuple[int, int] = (0, 0),
         negative_target_size: Optional[Tuple[int, int]] = None,
+        aesthetic_score: float = 6.0,
+        negative_aesthetic_score: float = 2.5,
         clip_skip: Optional[int] = None,
         callback_on_step_end: Optional[Callable[[int, int, Dict], None]] = None,
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
-
-        # IP adapter
-        ip_adapter_scale=None,
-
-        # Enhance Face Region
-        control_mask = None,
-
         **kwargs,
     ):
         r"""
@@ -792,7 +705,7 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
             callback_on_step_end_tensor_inputs (`List`, *optional*):
                 The list of tensor inputs for the `callback_on_step_end` function. The tensors specified in the list
                 will be passed as `callback_kwargs` argument. You will only be able to include variables listed in the
-                `._callback_tensor_inputs` attribute of your pipeine class.
+                `._callback_tensor_inputs` attribute of your pipeline class.
 
         Examples:
 
@@ -801,8 +714,6 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
                 If `return_dict` is `True`, [`~pipelines.stable_diffusion.StableDiffusionPipelineOutput`] is returned,
                 otherwise a `tuple` is returned containing the output images.
         """
-
-        lpw = LongPromptWeight()
 
         callback = kwargs.pop("callback", None)
         callback_steps = kwargs.pop("callback_steps", None)
@@ -833,29 +744,29 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
                 mult * [control_guidance_start],
                 mult * [control_guidance_end],
             )
-        
-        # 0. set ip_adapter_scale
-        if ip_adapter_scale is not None:
-            self.set_ip_adapter_scale(ip_adapter_scale)
 
         # 1. Check inputs. Raise error if not correct
         self.check_inputs(
-            prompt=prompt,
-            prompt_2=prompt_2,
-            image=image,
-            callback_steps=callback_steps,
-            negative_prompt=negative_prompt,
-            negative_prompt_2=negative_prompt_2,
-            prompt_embeds=prompt_embeds,
-            negative_prompt_embeds=negative_prompt_embeds,
-            pooled_prompt_embeds=pooled_prompt_embeds,
-            negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
-            controlnet_conditioning_scale=controlnet_conditioning_scale,
-            control_guidance_start=control_guidance_start,
-            control_guidance_end=control_guidance_end,
-            callback_on_step_end_tensor_inputs=callback_on_step_end_tensor_inputs,
+            prompt,
+            prompt_2,
+            control_image,
+            strength,
+            num_inference_steps,
+            callback_steps,
+            negative_prompt,
+            negative_prompt_2,
+            prompt_embeds,
+            negative_prompt_embeds,
+            pooled_prompt_embeds,
+            negative_pooled_prompt_embeds,
+            None,
+            None,
+            controlnet_conditioning_scale,
+            control_guidance_start,
+            control_guidance_end,
+            callback_on_step_end_tensor_inputs,
         )
-        
+
         self._guidance_scale = guidance_scale
         self._clip_skip = clip_skip
         self._cross_attention_kwargs = cross_attention_kwargs
@@ -881,32 +792,44 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
         guess_mode = guess_mode or global_pool_conditions
 
         # 3.1 Encode input prompt
+        text_encoder_lora_scale = (
+            self.cross_attention_kwargs.get("scale", None) if self.cross_attention_kwargs is not None else None
+        )
         (
             prompt_embeds,
             negative_prompt_embeds,
             pooled_prompt_embeds,
             negative_pooled_prompt_embeds,
-        ) = lpw.get_weighted_text_embeddings_sdxl(
-            pipe=self, 
-            prompt=prompt, 
-            neg_prompt=negative_prompt,
+        ) = self.encode_prompt(
+            prompt,
+            prompt_2,
+            device,
+            num_images_per_prompt,
+            self.do_classifier_free_guidance,
+            negative_prompt,
+            negative_prompt_2,
             prompt_embeds=prompt_embeds,
             negative_prompt_embeds=negative_prompt_embeds,
             pooled_prompt_embeds=pooled_prompt_embeds,
             negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
+            lora_scale=text_encoder_lora_scale,
+            clip_skip=self.clip_skip,
         )
-        
+
         # 3.2 Encode image prompt
-        prompt_image_emb = self._encode_prompt_image_emb(image_embeds, 
-                                                         device,
-                                                         num_images_per_prompt,
-                                                         self.unet.dtype,
-                                                         self.do_classifier_free_guidance)
-        
-        # 4. Prepare image
+        prompt_image_emb = self._encode_prompt_image_emb(
+            image_embeds, device, self.unet.dtype, self.do_classifier_free_guidance
+        )
+        bs_embed, seq_len, _ = prompt_image_emb.shape
+        prompt_image_emb = prompt_image_emb.repeat(1, num_images_per_prompt, 1)
+        prompt_image_emb = prompt_image_emb.view(bs_embed * num_images_per_prompt, seq_len, -1)
+
+        # 4. Prepare image and controlnet_conditioning_image
+        image = self.image_processor.preprocess(image, height=height, width=width).to(dtype=torch.float32)
+
         if isinstance(controlnet, ControlNetModel):
-            image = self.prepare_image(
-                image=image,
+            control_image = self.prepare_control_image(
+                image=control_image,
                 width=width,
                 height=height,
                 batch_size=batch_size * num_images_per_prompt,
@@ -916,13 +839,13 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
                 do_classifier_free_guidance=self.do_classifier_free_guidance,
                 guess_mode=guess_mode,
             )
-            height, width = image.shape[-2:]
+            height, width = control_image.shape[-2:]
         elif isinstance(controlnet, MultiControlNetModel):
-            images = []
+            control_images = []
 
-            for image_ in image:
-                image_ = self.prepare_image(
-                    image=image_,
+            for control_image_ in control_image:
+                control_image_ = self.prepare_control_image(
+                    image=control_image_,
                     width=width,
                     height=height,
                     batch_size=batch_size * num_images_per_prompt,
@@ -933,51 +856,32 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
                     guess_mode=guess_mode,
                 )
 
-                images.append(image_)
+                control_images.append(control_image_)
 
-            image = images
-            height, width = image[0].shape[-2:]
+            control_image = control_images
+            height, width = control_image[0].shape[-2:]
         else:
             assert False
 
-        # 4.1 Region control
-        if control_mask is not None:
-            mask_weight_image = control_mask
-            mask_weight_image = np.array(mask_weight_image)
-            mask_weight_image_tensor = torch.from_numpy(mask_weight_image).to(device=device, dtype=prompt_embeds.dtype)
-            mask_weight_image_tensor = mask_weight_image_tensor[:, :, 0] / 255.
-            mask_weight_image_tensor = mask_weight_image_tensor[None, None]
-            h, w = mask_weight_image_tensor.shape[-2:]
-            control_mask_wight_image_list = []
-            for scale in [8, 8, 8, 16, 16, 16, 32, 32, 32]:
-                scale_mask_weight_image_tensor = F.interpolate(
-                    mask_weight_image_tensor,(h // scale, w // scale), mode='bilinear')
-                control_mask_wight_image_list.append(scale_mask_weight_image_tensor)
-            region_mask = torch.from_numpy(np.array(control_mask)[:, :, 0]).to(self.unet.device, dtype=self.unet.dtype) / 255.
-            region_control.prompt_image_conditioning = [dict(region_mask=region_mask)]
-        else:
-            control_mask_wight_image_list = None
-            region_control.prompt_image_conditioning = [dict(region_mask=None)]
-
         # 5. Prepare timesteps
         self.scheduler.set_timesteps(num_inference_steps, device=device)
-        timesteps = self.scheduler.timesteps
+        timesteps, num_inference_steps = self.get_timesteps(num_inference_steps, strength, device)
+        latent_timestep = timesteps[:1].repeat(batch_size * num_images_per_prompt)
         self._num_timesteps = len(timesteps)
 
         # 6. Prepare latent variables
-        num_channels_latents = self.unet.config.in_channels
         latents = self.prepare_latents(
-            batch_size * num_images_per_prompt,
-            num_channels_latents,
-            height,
-            width,
+            image,
+            latent_timestep,
+            batch_size,
+            num_images_per_prompt,
             prompt_embeds.dtype,
             device,
             generator,
-            latents,
+            True,
         )
 
-        # 6.5 Optionally get Guidance Scale Embedding
+        # # 6.5 Optionally get Guidance Scale Embedding
         timestep_cond = None
         if self.unet.config.time_cond_proj_dim is not None:
             guidance_scale_tensor = torch.tensor(self.guidance_scale - 1).repeat(batch_size * num_images_per_prompt)
@@ -998,41 +902,42 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
             controlnet_keep.append(keeps[0] if isinstance(controlnet, ControlNetModel) else keeps)
 
         # 7.2 Prepare added time ids & embeddings
-        if isinstance(image, list):
-            original_size = original_size or image[0].shape[-2:]
+        if isinstance(control_image, list):
+            original_size = original_size or control_image[0].shape[-2:]
         else:
-            original_size = original_size or image.shape[-2:]
+            original_size = original_size or control_image.shape[-2:]
         target_size = target_size or (height, width)
 
+        if negative_original_size is None:
+            negative_original_size = original_size
+        if negative_target_size is None:
+            negative_target_size = target_size
         add_text_embeds = pooled_prompt_embeds
+
         if self.text_encoder_2 is None:
             text_encoder_projection_dim = int(pooled_prompt_embeds.shape[-1])
         else:
             text_encoder_projection_dim = self.text_encoder_2.config.projection_dim
 
-        add_time_ids = self._get_add_time_ids(
+        add_time_ids, add_neg_time_ids = self._get_add_time_ids(
             original_size,
             crops_coords_top_left,
             target_size,
+            aesthetic_score,
+            negative_aesthetic_score,
+            negative_original_size,
+            negative_crops_coords_top_left,
+            negative_target_size,
             dtype=prompt_embeds.dtype,
             text_encoder_projection_dim=text_encoder_projection_dim,
         )
-
-        if negative_original_size is not None and negative_target_size is not None:
-            negative_add_time_ids = self._get_add_time_ids(
-                negative_original_size,
-                negative_crops_coords_top_left,
-                negative_target_size,
-                dtype=prompt_embeds.dtype,
-                text_encoder_projection_dim=text_encoder_projection_dim,
-            )
-        else:
-            negative_add_time_ids = add_time_ids
+        add_time_ids = add_time_ids.repeat(batch_size * num_images_per_prompt, 1)
 
         if self.do_classifier_free_guidance:
             prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
             add_text_embeds = torch.cat([negative_pooled_prompt_embeds, add_text_embeds], dim=0)
-            add_time_ids = torch.cat([negative_add_time_ids, add_time_ids], dim=0)
+            add_neg_time_ids = add_neg_time_ids.repeat(batch_size * num_images_per_prompt, 1)
+            add_time_ids = torch.cat([add_neg_time_ids, add_time_ids], dim=0)
 
         prompt_embeds = prompt_embeds.to(device)
         add_text_embeds = add_text_embeds.to(device)
@@ -1044,7 +949,7 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
         is_unet_compiled = is_compiled_module(self.unet)
         is_controlnet_compiled = is_compiled_module(self.controlnet)
         is_torch_higher_equal_2_1 = is_torch_version(">=", "2.1")
-                
+
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 # Relevant thread:
@@ -1071,7 +976,7 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
                     control_model_input = latent_model_input
                     controlnet_prompt_embeds = prompt_embeds
                     controlnet_added_cond_kwargs = added_cond_kwargs
-                
+
                 if isinstance(controlnet_keep[i], list):
                     cond_scale = [c * s for c, s in zip(controlnet_conditioning_scale, controlnet_keep[i])]
                 else:
@@ -1080,57 +985,16 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
                         controlnet_cond_scale = controlnet_cond_scale[0]
                     cond_scale = controlnet_cond_scale * controlnet_keep[i]
 
-                if isinstance(self.controlnet, MultiControlNetModel):
-                    down_block_res_samples_list, mid_block_res_sample_list = [], []
-                    for control_index in range(len(self.controlnet.nets)):
-                        controlnet = self.controlnet.nets[control_index]
-                        if control_index == 0:
-                            # assume fhe first controlnet is IdentityNet
-                            controlnet_prompt_embeds = prompt_image_emb
-                        else:
-                            controlnet_prompt_embeds = prompt_embeds
-                        down_block_res_samples, mid_block_res_sample = controlnet(control_model_input,
-                                                                                  t,
-                                                                                  encoder_hidden_states=controlnet_prompt_embeds,
-                                                                                  controlnet_cond=image[control_index],
-                                                                                  conditioning_scale=cond_scale[control_index],
-                                                                                  guess_mode=guess_mode,
-                                                                                  added_cond_kwargs=controlnet_added_cond_kwargs,
-                                                                                  return_dict=False)
-
-                        # controlnet mask
-                        if control_index == 0 and control_mask_wight_image_list is not None:
-                            down_block_res_samples = [
-                                down_block_res_sample * mask_weight
-                                for down_block_res_sample, mask_weight in zip(down_block_res_samples, control_mask_wight_image_list)
-                            ]
-                            mid_block_res_sample *= control_mask_wight_image_list[-1]
-
-                        down_block_res_samples_list.append(down_block_res_samples)
-                        mid_block_res_sample_list.append(mid_block_res_sample)
-
-                    mid_block_res_sample = torch.stack(mid_block_res_sample_list).sum(dim=0)
-                    down_block_res_samples = [torch.stack(down_block_res_samples).sum(dim=0) for down_block_res_samples in
-                                              zip(*down_block_res_samples_list)]
-                else:
-                    down_block_res_samples, mid_block_res_sample = self.controlnet(
-                        control_model_input,
-                        t,
-                        encoder_hidden_states=prompt_image_emb,
-                        controlnet_cond=image,
-                        conditioning_scale=cond_scale,
-                        guess_mode=guess_mode,
-                        added_cond_kwargs=controlnet_added_cond_kwargs,
-                        return_dict=False,
-                    )
-
-                    # controlnet mask
-                    if control_mask_wight_image_list is not None:
-                        down_block_res_samples = [
-                            down_block_res_sample * mask_weight
-                            for down_block_res_sample, mask_weight in zip(down_block_res_samples, control_mask_wight_image_list)
-                        ]
-                        mid_block_res_sample *= control_mask_wight_image_list[-1]
+                down_block_res_samples, mid_block_res_sample = self.controlnet(
+                    control_model_input,
+                    t,
+                    encoder_hidden_states=prompt_image_emb,
+                    controlnet_cond=control_image,
+                    conditioning_scale=cond_scale,
+                    guess_mode=guess_mode,
+                    added_cond_kwargs=controlnet_added_cond_kwargs,
+                    return_dict=False,
+                )
 
                 if guess_mode and self.do_classifier_free_guidance:
                     # Infered ControlNet only for the conditional batch.
@@ -1176,31 +1040,15 @@ class StableDiffusionXLInstantIDPipeline(StableDiffusionXLControlNetPipeline):
                     if callback is not None and i % callback_steps == 0:
                         step_idx = i // getattr(self.scheduler, "order", 1)
                         callback(step_idx, t, latents)
-        
+
         if not output_type == "latent":
             # make sure the VAE is in float32 mode, as it overflows in float16
             needs_upcasting = self.vae.dtype == torch.float16 and self.vae.config.force_upcast
-
             if needs_upcasting:
                 self.upcast_vae()
                 latents = latents.to(next(iter(self.vae.post_quant_conv.parameters())).dtype)
 
-            # unscale/denormalize the latents
-            # denormalize with the mean and std if available and not None
-            has_latents_mean = hasattr(self.vae.config, "latents_mean") and self.vae.config.latents_mean is not None
-            has_latents_std = hasattr(self.vae.config, "latents_std") and self.vae.config.latents_std is not None
-            if has_latents_mean and has_latents_std:
-                latents_mean = (
-                    torch.tensor(self.vae.config.latents_mean).view(1, 4, 1, 1).to(latents.device, latents.dtype)
-                )
-                latents_std = (
-                    torch.tensor(self.vae.config.latents_std).view(1, 4, 1, 1).to(latents.device, latents.dtype)
-                )
-                latents = latents * latents_std / self.vae.config.scaling_factor + latents_mean
-            else:
-                latents = latents / self.vae.config.scaling_factor
-
-            image = self.vae.decode(latents, return_dict=False)[0]
+            image = self.vae.decode(latents / self.vae.config.scaling_factor, return_dict=False)[0]
 
             # cast back to fp16 if needed
             if needs_upcasting:
