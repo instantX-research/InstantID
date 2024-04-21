@@ -38,7 +38,7 @@ InstantID is a new state-of-the-art tuning-free method to achieve ID-Preserving 
 ### Stylized Synthesis
 
 <p align="center">
-  <img src="assets/0.png">
+  <img src="assets/StylizedSynthesis.png">
 </p>
 
 ### Comparison with Previous Works
