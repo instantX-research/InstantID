@@ -32,6 +32,7 @@ safety-cache/
 
 # Exclude Python cache files
 __pycache__
+.pytest_cache/
 .mypy_cache
 .pytest_cache
 .ruff_cache

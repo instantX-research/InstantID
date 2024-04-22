@@ -10,6 +10,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "../gradio_demo"))
 import cv2
 import time
 import torch
+import mimetypes
 import subprocess
 import numpy as np
 from typing import List
@@ -39,6 +40,8 @@ from pipeline_stable_diffusion_xl_instantid import (
     StableDiffusionXLInstantIDPipeline,
     draw_kps,
 )
+
+mimetypes.add_type("image/webp", ".webp")
 
 # GPU global variables
 DEVICE = get_torch_device()
@@ -626,6 +629,17 @@ class Predictor(BasePredictor):
         enhance_nonface_region: bool = Input(
             description="Enhance non-face region", default=True
         ),
+        output_format: str = Input(
+            description="Format of the output images",
+            choices=["webp", "jpg", "png"],
+            default="webp",
+        ),
+        output_quality: int = Input(
+            description="Quality of the output images, from 0 to 100. 100 is best quality, 0 is lowest quality.",
+            default=80,
+            ge=0,
+            le=100,
+        ),
         seed: int = Input(
             description="Random seed. Leave blank to randomize the seed",
             default=None,
@@ -691,7 +705,21 @@ class Predictor(BasePredictor):
                     raise Exception(
                         "NSFW content detected. Try running it again, or try a different prompt."
                     )
-            output_path = f"/tmp/out_{i}.png"
-            output_image.save(output_path)
+            
+            extension = output_format.lower()
+            extension = "jpeg" if extension == "jpg" else extension
+            output_path = f"/tmp/out_{i}.{extension}"
+
+            print(f"[~] Saving to {output_path}...")
+            print(f"[~] Output format: {extension.upper()}")
+            if output_format != "png":
+                print(f"[~] Output quality: {output_quality}")
+
+            save_params = {"format": extension.upper()}
+            if output_format != "png":
+                save_params["quality"] = output_quality
+                save_params["optimize"] = True
+
+            output_image.save(output_path, **save_params)
             output_paths.append(Path(output_path))
         return output_paths
