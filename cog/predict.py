@@ -186,10 +186,19 @@ def resize_img(
 
 def download_weights(url, dest):
     start = time.time()
-    print("downloading url: ", url)
-    print("downloading to: ", dest)
-    subprocess.check_call(["pget", "-x", "-v", url, dest], close_fds=False)
-    print("downloading took: ", time.time() - start)
+    print("[!] Initiating download from URL: ", url)
+    print("[~] Destination path: ", dest)
+    command = ["pget", "-vf", url, dest]
+    if ".tar" in url:
+        command.append("-x")
+    try:
+        subprocess.check_call(command, close_fds=False)
+    except subprocess.CalledProcessError as e:
+        print(
+            f"[ERROR] Failed to download weights. Command '{' '.join(e.cmd)}' returned non-zero exit status {e.returncode}."
+        )
+        raise
+    print("[+] Download completed in: ", time.time() - start, "seconds")
 
 
 class Predictor(BasePredictor):
@@ -202,13 +211,12 @@ class Predictor(BasePredictor):
         if not os.path.exists(MODELS_CACHE):
             download_weights(MODELS_URL, MODELS_CACHE)
 
-        self.width, self.height = 640, 640
         self.app = FaceAnalysis(
             name="antelopev2",
             root="./",
             providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
         )
-        self.app.prepare(ctx_id=0, det_size=(self.width, self.height))
+        self.app.prepare(ctx_id=0, det_size=(640, 640))
 
         # Path to InstantID models
         self.face_adapter = f"./checkpoints/ip-adapter.bin"
@@ -533,18 +541,6 @@ class Predictor(BasePredictor):
                 "protovision-xl-high-fidel",
             ],
         ),
-        width: int = Input(
-            description="Width of output image",
-            default=640,
-            ge=512,
-            le=4096,
-        ),
-        height: int = Input(
-            description="Height of output image",
-            default=640,
-            ge=512,
-            le=4096,
-        ),
         scheduler: str = Input(
             description="Scheduler",
             choices=[
@@ -649,13 +645,6 @@ class Predictor(BasePredictor):
         # Load the weights if they are different from the base weights
         if sdxl_weights != self.base_weights:
             self.load_weights(sdxl_weights)
-
-        # Resize the output if the provided dimensions are different from the current ones
-        if self.width != width or self.height != height:
-            print(f"[!] Resizing output to {width}x{height}")
-            self.width = width
-            self.height = height
-            self.app.prepare(ctx_id=0, det_size=(self.width, self.height))
 
         # Set up ControlNet selection and their respective strength values (if any)
         controlnet_selection = []

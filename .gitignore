@@ -163,15 +163,10 @@ checkpoints/
 models/
 
 # Cog
-<<<<<<< HEAD
 .cog/
 checkpoints/
 models/
 safety-cache/
 *.tar
 .vscode
-=======
-.cog
-
 gradio_cached_examples
->>>>>>> 002a7f0d10dda5c1ad670f2a88ece48df52d96fa

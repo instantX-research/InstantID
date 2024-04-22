@@ -27,6 +27,10 @@ build:
     - "peft==0.8.2"
     - "transformers==4.37.0"
     - "controlnet-aux==0.0.7"
+    
+    # fix for pydantic issues in cog
+    # https://github.com/replicate/cog/issues/1623
+    - albumentations==1.4.3
 
   # commands run after the environment is setup
   run:
