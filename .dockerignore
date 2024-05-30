@@ -3,9 +3,10 @@
 # https://docs.docker.com/engine/reference/builder/#dockerignore-file
 
 # Replicate
-checkpoints/
-models/
-safety-cache/
+/checkpoints/
+/models/
+/safety-cache/
+/gradio_cached_examples/
 *.mp4
 *.pth
 *.pt

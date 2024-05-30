@@ -33,7 +33,7 @@ from controlnet_util import openpose, get_depth_map, get_canny_image
 from diffusers.pipelines.stable_diffusion.safety_checker import (
     StableDiffusionSafetyChecker,
 )
-from pipeline_stable_diffusion_xl_instantid import (
+from pipeline_stable_diffusion_xl_instantid_full import (
     StableDiffusionXLInstantIDPipeline,
     draw_kps,
 )
@@ -214,12 +214,13 @@ class Predictor(BasePredictor):
         if not os.path.exists(MODELS_CACHE):
             download_weights(MODELS_URL, MODELS_CACHE)
 
+        self.face_detection_input_width, self.face_detection_input_height = 640, 640
         self.app = FaceAnalysis(
             name="antelopev2",
             root="./",
             providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
         )
-        self.app.prepare(ctx_id=0, det_size=(640, 640))
+        self.app.prepare(ctx_id=0, det_size=(self.face_detection_input_width, self.face_detection_input_height))
 
         # Path to InstantID models
         self.face_adapter = f"./checkpoints/ip-adapter.bin"
@@ -548,6 +549,18 @@ class Predictor(BasePredictor):
                 "RealVisXL_V4.0_Lightning",
             ],
         ),
+        face_detection_input_width: int = Input(
+            description="Width of the input image for face detection",
+            default=640,
+            ge=640,
+            le=4096,
+        ),
+        face_detection_input_height: int = Input(
+            description="Height of the input image for face detection",
+            default=640,
+            ge=640,
+            le=4096,
+        ),
         scheduler: str = Input(
             description="Scheduler",
             choices=[
@@ -669,6 +682,13 @@ class Predictor(BasePredictor):
         # Load the weights if they are different from the base weights
         if sdxl_weights != self.base_weights:
             self.load_weights(sdxl_weights)
+
+        # Resize the output if the provided dimensions are different from the current ones
+        if self.face_detection_input_width != face_detection_input_width or self.face_detection_input_height != face_detection_input_height:
+            print(f"[!] Resizing output to {face_detection_input_width}x{face_detection_input_height}")
+            self.face_detection_input_width = face_detection_input_width
+            self.face_detection_input_height = face_detection_input_height
+            self.app.prepare(ctx_id=0, det_size=(self.face_detection_input_width, self.face_detection_input_height))
 
         # Set up ControlNet selection and their respective strength values (if any)
         controlnet_selection = []
