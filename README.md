@@ -25,6 +25,7 @@ InstantID is a new state-of-the-art tuning-free method to achieve ID-Preserving 
 <img src='assets/applications.png'>
 
 ## Release
+- [2024/07/18] 🔥 We are training InstantID for Kolor, and the model requires significant computational power, which is currently in the process of iteration. The latest checkpoint results are referenced in [kolor](#kolor).
 - [2024/04/03] 🔥 We release our recent work [InstantStyle](https://github.com/InstantStyle/InstantStyle) for style transfer, compatible with InstantID!
 - [2024/02/01] 🔥 We have supported LCM acceleration and Multi-ControlNets on our [Huggingface Spaces Demo](https://huggingface.co/spaces/InstantX/InstantID)! Our depth estimator is supported by [Depth-Anything](https://github.com/LiheYoung/Depth-Anything).
 - [2024/01/31] 🔥 [OneDiff](https://github.com/siliconflow/onediff?tab=readme-ov-file#easy-to-use) now supports accelerated inference for InstantID, check [this](https://github.com/siliconflow/onediff/blob/main/benchmarks/instant_id.py) for details!
@@ -60,6 +61,15 @@ Comparison with pre-trained character LoRAs. We don't need multiple images and s
 </p>
 
 Comparison with InsightFace Swapper (also known as ROOP or Refactor). However, in non-realistic style, our work is more flexible on the integration of face and background.
+
+### Kolor
+
+We have adapted InstantID for Kolor. Thanks to Kolor's powerful text generation capabilities, Kolor can be used in conjunction with InstantID to generate both IDs and text simultaneously.
+
+| demo | demo | demo |
+|:-----:|:-----:|:-----:|
+<img src="./data/demo_1.jpg" >|<img src="./data/demo_2.jpg" >|<img src="./data/demo_3.jpg" >|
+
 
 
 ## Download
