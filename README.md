@@ -25,7 +25,7 @@ InstantID is a new state-of-the-art tuning-free method to achieve ID-Preserving 
 <img src='assets/applications.png'>
 
 ## Release
-- [2024/07/18] 🔥 We are training InstantID for [Kolors](https://huggingface.co/Kwai-Kolors/Kolors-diffusers). The weight requires significant computational power, which is currently in the process of iteration. After the model training is completed, it will be open-sourced. The latest checkpoint results are referenced in [Kolors Vision](#kolors-vision). 
+- [2024/07/18] 🔥 We are training InstantID for [Kolors](https://huggingface.co/Kwai-Kolors/Kolors-diffusers). The weight requires significant computational power, which is currently in the process of iteration. After the model training is completed, it will be open-sourced. The latest checkpoint results are referenced in [Kolors Version](#kolors-version). 
 - [2024/04/03] 🔥 We release our recent work [InstantStyle](https://github.com/InstantStyle/InstantStyle) for style transfer, compatible with InstantID!
 - [2024/02/01] 🔥 We have supported LCM acceleration and Multi-ControlNets on our [Huggingface Spaces Demo](https://huggingface.co/spaces/InstantX/InstantID)! Our depth estimator is supported by [Depth-Anything](https://github.com/LiheYoung/Depth-Anything).
 - [2024/01/31] 🔥 [OneDiff](https://github.com/siliconflow/onediff?tab=readme-ov-file#easy-to-use) now supports accelerated inference for InstantID, check [this](https://github.com/siliconflow/onediff/blob/main/benchmarks/instant_id.py) for details!
@@ -62,7 +62,7 @@ Comparison with pre-trained character LoRAs. We don't need multiple images and s
 
 Comparison with InsightFace Swapper (also known as ROOP or Refactor). However, in non-realistic style, our work is more flexible on the integration of face and background.
 
-### Kolors Vision
+### Kolors Version
 
 We have adapted InstantID for [Kolors](https://huggingface.co/Kwai-Kolors/Kolors-diffusers). Leveraging Kolors' robust text generation capabilities 👍👍👍, InstantID can be integrated with Kolors to simultaneously generate **ID** and **text**.
 
