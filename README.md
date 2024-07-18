@@ -64,7 +64,7 @@ Comparison with InsightFace Swapper (also known as ROOP or Refactor). However, i
 
 ### Kolors Vision
 
-We have adapted InstantID for [Kolors](https://huggingface.co/Kwai-Kolors/Kolors-diffusers). Leveraging Kolors' robust text generation capabilities, InstantID can be integrated with Kolors to simultaneously generate ID and text.
+We have adapted InstantID for [Kolors](https://huggingface.co/Kwai-Kolors/Kolors-diffusers). Leveraging Kolors' robust text generation capabilities 👍👍👍, InstantID can be integrated with Kolors to simultaneously generate $ID$ and $text$.
 
 
 | demo | demo | demo |
