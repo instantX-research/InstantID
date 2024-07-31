@@ -89,6 +89,7 @@ Or run the following command to download all models:
 
 ```python
 pip install -r gradio_demo/requirements.txt
+mkdir models
 python gradio_demo/download_models.py
 ```
 
