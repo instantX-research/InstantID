@@ -492,22 +492,38 @@ class Predictor(BasePredictor):
         print(f"[Debug] Prompt: {prompt}, \n[Debug] Neg Prompt: {negative_prompt}")
 
         self.pipe.set_ip_adapter_scale(adapter_strength_ratio)
-        images = self.pipe(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            image_embeds=face_emb,
-            image=control_images,
-            control_mask=control_mask,
-            controlnet_conditioning_scale=control_scales,
-            num_inference_steps=num_steps,
-            guidance_scale=guidance_scale,
-            height=height,
-            width=width,
-            generator=generator,
-            num_images_per_prompt=num_images_per_prompt,
-        ).images
-
-        return images
+        if num_images_per_prompt > 1:
+            all_images = []
+            for i in range(num_images_per_prompt):
+                images = self.pipe(
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    image_embeds=face_emb,
+                    image=control_images,
+                    control_mask=control_mask,
+                    controlnet_conditioning_scale=control_scales,
+                    num_inference_steps=num_steps,
+                    guidance_scale=guidance_scale,
+                    height=height,
+                    width=width,
+                    generator=generator,
+                ).images
+                all_images.extend(images)
+            return all_images
+        else:
+            return self.pipe(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                image_embeds=face_emb,
+                image=control_images,
+                control_mask=control_mask,
+                controlnet_conditioning_scale=control_scales,
+                num_inference_steps=num_steps,
+                guidance_scale=guidance_scale,
+                height=height,
+                width=width,
+                generator=generator,
+            ).images
 
     def predict(
         self,
