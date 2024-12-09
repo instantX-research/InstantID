@@ -1,0 +1,5 @@
+numpy
+pytest
+replicate
+requests
+Pillow

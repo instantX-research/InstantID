@@ -163,6 +163,28 @@ checkpoints/
 models/
 
 # Cog
-.cog
-
+/.cog/
+/checkpoints/
+/models/
+/safety-cache/
+*.tar
+.vscode
 gradio_cached_examples
+cog/test_batchsize.py
+input.png
+output_*.png
+output.*.png
+output_image_*.png
+output_image.*.png
+output_*.webp
+output.*.webp
+output_image_*.webp
+output_image.*.webp
+output_*.jpg
+output.*.jpg
+output_image_*.jpg
+output_image.*.jpg
+output_*.jpeg
+output.*.jpeg
+output_image_*.jpeg
+output_image.*.jpeg
